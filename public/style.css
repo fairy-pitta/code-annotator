@@ -101,12 +101,13 @@ body {
   font-variation-settings: "opsz" 36;
 }
 
+.header-actions { display: flex; gap: 5px; }
 .btn-icon {
   width: 32px; height: 32px;
   background: var(--bg-raised); border: 1px solid var(--border);
   color: var(--text-2); border-radius: var(--radius-s);
   cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all .2s var(--ease);
+  transition: all .2s var(--ease); text-decoration: none;
 }
 .btn-icon:hover { color: var(--text-1); border-color: var(--text-3); background: var(--bg-surface); }
 
@@ -542,6 +543,30 @@ body {
   border: 1px solid var(--border); padding: 9px 20px;
 }
 .btn-ghost:hover { background: var(--bg-raised); color: var(--text-1); border-color: var(--text-3); }
+
+/* ── How to Use modal body ── */
+.howto-body { display: block !important; padding: 24px !important; background: var(--bg-surface) !important; }
+.howto-steps { display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px; }
+.howto-step {
+  display: flex; gap: 14px; align-items: flex-start;
+  font-size: 13px; line-height: 1.6; color: var(--text-1);
+}
+.howto-num {
+  width: 26px; height: 26px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff;
+  border-radius: 50%; font-size: 12px; font-weight: 700;
+}
+.howto-step strong { font-weight: 700; }
+.howto-step em { color: var(--accent); font-style: normal; font-weight: 600; }
+.howto-tips {
+  background: var(--bg-raised); border: 1px solid var(--border-dim);
+  border-radius: var(--radius-m); padding: 14px 16px;
+  font-size: 12px; line-height: 1.6; color: var(--text-2);
+}
+.howto-tips strong { color: var(--text-1); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; display: block; margin-bottom: 8px; }
+.howto-tips ul { padding-left: 18px; margin: 0; }
+.howto-tips li { margin: 4px 0; }
 
 @media (max-width: 768px) {
   #app { flex-direction: column; }

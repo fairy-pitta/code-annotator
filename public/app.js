@@ -57,6 +57,14 @@
   addAnnotationBtn.addEventListener('click', addAnnotation);
   downloadBtn.addEventListener('click', downloadPNG);
 
+  // How to Use modal
+  const howtoModal = document.getElementById('howto-modal');
+  const howtoBtn = document.getElementById('howto-btn');
+  const howtoCloseBtn = document.getElementById('howto-close-btn');
+  howtoBtn.addEventListener('click', () => { howtoModal.style.display = 'flex'; });
+  howtoCloseBtn.addEventListener('click', () => { howtoModal.style.display = 'none'; });
+  howtoModal.addEventListener('click', (e) => { if (e.target === howtoModal) howtoModal.style.display = 'none'; });
+
   codeInput.addEventListener('keydown', function (e) {
     if (e.key === 'Tab') { e.preventDefault(); const s = this.selectionStart, end = this.selectionEnd; this.value = this.value.substring(0, s) + '  ' + this.value.substring(end); this.selectionStart = this.selectionEnd = s + 2; }
   });
@@ -529,7 +537,12 @@
   modalCloseBtn.addEventListener('click', closeModal);
   modalCancelBtn.addEventListener('click', closeModal);
   modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.style.display !== 'none') closeModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (modal.style.display !== 'none') closeModal();
+      if (howtoModal.style.display !== 'none') howtoModal.style.display = 'none';
+    }
+  });
   modalDownloadBtn.addEventListener('click', () => {
     if (!pendingDataUrl) return;
     const link = document.createElement('a');

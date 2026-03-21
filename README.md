@@ -2,42 +2,36 @@
 
 **Create beautiful, annotated code snippets for documentation, presentations, and teaching — entirely in the browser.**
 
-<!-- Add your screenshot: save as docs/screenshot.png -->
 ![Code Annotator Screenshot](./docs/screenshot.png)
 
-## ✨ Features
+## Features
 
-- **Syntax Highlighting** — Paste code with syntax highlighting for 19 languages via Prism.js
+- **Syntax Highlighting** — 19 languages supported via Prism.js
 - **Text Selection Annotations** — Select any text in your code to create annotation cards
-- **Rich Text Editing** — Format annotations with bold, italic, underline, strikethrough, and lists
-- **Customizable Styling** — Set highlight color, text color, and font size per annotation
+- **Rich Text Editing** — Bold, italic, underline, strikethrough, and lists
+- **Customizable Styling** — Highlight color, text color, and font size per annotation
 - **Drag & Drop** — Freely position annotation cards and arrows on the canvas
-- **Resizable Elements** — Resize the code block, annotation cards, and export area to fit your needs
-- **Dark / Light Theme** — Toggle between themes to match your preference
-- **PNG Export** — Export your annotated code as a PNG image with a live preview modal
-- **Privacy First** — Runs entirely in the browser; no data ever leaves your machine
+- **Resizable Elements** — Resize code block, annotation cards, and export area
+- **Dark / Light Theme** — Toggle to match your preference
+- **PNG Export** — Preview and download your annotated code as a PNG image
+- **Privacy First** — Runs entirely in the browser; no data leaves your machine
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v16 or later recommended)
+- [Node.js](https://nodejs.org/) (v16+)
 
-### Installation
+### Install & Run
 
 ```bash
 git clone https://github.com/fairy-pitta/code-annotator.git
 cd code-annotator
 npm install
-```
-
-### Development
-
-```bash
 npm run dev
 ```
 
-The app will be available at [http://localhost:8788](http://localhost:8788).
+Open [http://localhost:8788](http://localhost:8788).
 
 ### Deploy
 
@@ -47,15 +41,15 @@ npm run deploy
 
 Deploys to Cloudflare Workers.
 
-## 📖 Usage
+## Usage
 
-1. **Paste** your code into the editor and select the language.
-2. **Select** a portion of text to create an annotation.
-3. **Annotate** by writing your notes in the rich-text card that appears.
-4. **Customize** highlight colors, text colors, font sizes, and reposition cards and arrows as needed.
-5. **Export** the result as a PNG image.
+1. **Paste** your code and select the language.
+2. **Select** text in the code display to create an annotation.
+3. **Write** your explanation using the rich-text editor in the sidebar.
+4. **Customize** colors, font size, and drag cards/arrows into position.
+5. **Export** as PNG — preview first, then download.
 
-## 🛠 Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |-------|------------|
@@ -64,10 +58,10 @@ Deploys to Cloudflare Workers.
 | Image Export | [html2canvas](https://html2canvas.hertzen.com/) |
 | Hosting | [Cloudflare Workers](https://workers.cloudflare.com/) |
 
-## 🔒 Privacy
+## Privacy
 
 Code Annotator is a **frontend-only** application. All processing happens in your browser — no code, annotations, or images are sent to any server.
 
-## 📄 License
+## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE)

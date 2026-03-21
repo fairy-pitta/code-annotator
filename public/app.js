@@ -42,7 +42,7 @@
   let drawnArrows = [];
 
   // === Theme ===
-  function initTheme() { setTheme(localStorage.getItem('code-annotator-theme') || 'dark'); }
+  function initTheme() { setTheme(localStorage.getItem('code-annotator-theme') || 'light'); }
   function setTheme(t) {
     htmlEl.setAttribute('data-theme', t);
     localStorage.setItem('code-annotator-theme', t);

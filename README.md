@@ -4,6 +4,10 @@
 
 ![Code Annotator Screenshot](./docs/screenshot.png)
 
+**Example output:**
+
+![Example PNG Output](./docs/example-output.png)
+
 ## Features
 
 - **Syntax Highlighting** — 19 languages supported via Prism.js

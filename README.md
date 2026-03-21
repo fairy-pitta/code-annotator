@@ -2,6 +2,8 @@
 
 **Create beautiful, annotated code snippets for documentation, presentations, and teaching — entirely in the browser.**
 
+![Demo](./docs/demo.gif)
+
 ![Code Annotator Screenshot](./docs/screenshot.png)
 
 **Example output:**

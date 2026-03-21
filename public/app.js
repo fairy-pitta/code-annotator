@@ -65,9 +65,97 @@
   howtoCloseBtn.addEventListener('click', () => { howtoModal.style.display = 'none'; });
   howtoModal.addEventListener('click', (e) => { if (e.target === howtoModal) howtoModal.style.display = 'none'; });
 
+  // === Smart editor keys ===
   codeInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Tab') { e.preventDefault(); const s = this.selectionStart, end = this.selectionEnd; this.value = this.value.substring(0, s) + '  ' + this.value.substring(end); this.selectionStart = this.selectionEnd = s + 2; }
+    const ta = this;
+    const s = ta.selectionStart, end = ta.selectionEnd;
+    const val = ta.value;
+
+    // Tab → insert 2 spaces
+    if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      ta.value = val.substring(0, s) + '  ' + val.substring(end);
+      ta.selectionStart = ta.selectionEnd = s + 2;
+      return;
+    }
+
+    // Shift+Tab → dedent current line
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+      const line = val.substring(lineStart);
+      if (line.startsWith('  ')) {
+        ta.value = val.substring(0, lineStart) + line.substring(2);
+        ta.selectionStart = ta.selectionEnd = Math.max(lineStart, s - 2);
+      }
+      return;
+    }
+
+    // Enter → auto-indent
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+      const line = val.substring(lineStart, s);
+      const indent = line.match(/^(\s*)/)[1];
+      const charBefore = val[s - 1];
+      const charAfter = val[s];
+      const openers = '{([';
+      const closers = '})]';
+      let extra = '';
+
+      // Add indent after { ( [
+      if (openers.includes(charBefore)) {
+        extra = '  ';
+        // If closing bracket is right after cursor, put it on a new line
+        if (closers.includes(charAfter)) {
+          ta.value = val.substring(0, s) + '\n' + indent + extra + '\n' + indent + val.substring(s);
+          ta.selectionStart = ta.selectionEnd = s + 1 + indent.length + extra.length;
+          triggerLiveUpdate();
+          return;
+        }
+      }
+
+      ta.value = val.substring(0, s) + '\n' + indent + extra + val.substring(end);
+      ta.selectionStart = ta.selectionEnd = s + 1 + indent.length + extra.length;
+      triggerLiveUpdate();
+      return;
+    }
+
+    // Auto-dedent on } ) ]
+    if ('})'.includes(e.key) || e.key === ']') {
+      const lineStart = val.lastIndexOf('\n', s - 1) + 1;
+      const before = val.substring(lineStart, s);
+      if (before.match(/^\s+$/) && before.length >= 2) {
+        ta.value = val.substring(0, lineStart) + before.substring(2) + val.substring(s);
+        ta.selectionStart = ta.selectionEnd = s - 2;
+        // Let the character be typed naturally after dedent
+      }
+    }
   });
+
+  // === Live update on input ===
+  let liveTimer = null;
+  function triggerLiveUpdate() {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(liveUpdate, 250);
+  }
+  codeInput.addEventListener('input', triggerLiveUpdate);
+  langSelect.addEventListener('change', triggerLiveUpdate);
+
+  function liveUpdate() {
+    const newCode = codeInput.value.trim();
+    if (!newCode) return;
+    currentLang = langSelect.value;
+    if (newCode !== currentCode) {
+      currentCode = newCode;
+      // Clear annotations only if code changed (offsets become invalid)
+      if (annotations.length > 0) {
+        annotations = []; nextId = 1; topZ = 1;
+      }
+    }
+    renderAll();
+    downloadBtn.disabled = false;
+  }
 
   const hintBadge = document.createElement('div');
   hintBadge.className = 'selection-hint';

@@ -826,6 +826,11 @@ body {
   padding: 14px 16px;
   min-width: 0;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+}
+:not(.show-card-code) .annotation-card .card-body {
+  justify-content: center;
 }
 .annotation-card .card-code {
   font-family: var(--font-mono);

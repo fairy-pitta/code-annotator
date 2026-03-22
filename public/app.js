@@ -1172,9 +1172,13 @@
             c.style.backdropFilter = "none";
             c.style.webkitBackdropFilter = "none";
           });
+          const codeVisible = showCodeToggle.checked;
           doc.querySelectorAll(".card-body").forEach((b) => {
             b.style.padding = "14px 16px";
             b.style.pointerEvents = "auto";
+            b.style.display = "flex";
+            b.style.flexDirection = "column";
+            if (!codeVisible) b.style.justifyContent = "center";
           });
           doc.querySelectorAll(".card-code").forEach((c) => {
             c.style.background = C.ter;
@@ -1189,7 +1193,7 @@
             if (!t.style.color) t.style.color = C.text;
             if (!t.style.fontSize) t.style.fontSize = "14px";
             t.style.lineHeight = "1.65";
-            t.style.marginTop = "10px";
+            if (codeVisible) t.style.marginTop = "10px";
             t.style.fontFamily = "'Bricolage Grotesque',system-ui,sans-serif";
           });
         },

@@ -698,6 +698,8 @@ body {
   overflow: hidden;
   border: 1px solid var(--border);
   cursor: text;
+  width: fit-content;
+  max-width: 100%;
   box-shadow:
     0 2px 16px var(--shadow-c),
     0 0 0 1px var(--border-dim);
@@ -844,6 +846,7 @@ body {
   border-radius: var(--radius-s);
   white-space: pre-wrap;
   word-break: break-all;
+  width: fit-content;
   display: none;
 }
 .show-card-code .annotation-card .card-code {

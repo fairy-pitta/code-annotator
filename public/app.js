@@ -494,17 +494,20 @@
     const eRect = exportArea.getBoundingClientRect();
     const wRect = codeWrapper.getBoundingClientRect();
     const startY = wRect.bottom - eRect.top + 50;
-    const defW = Math.min(exportArea.clientWidth - 64, 500);
+    const maxW = Math.min(exportArea.clientWidth - 64, 500);
     let nextY = startY;
 
     for (const ann of annotations) {
       const el = document.getElementById(`card-${ann.id}`);
       if (!el) continue;
       if (!ann.cardPos) ann.cardPos = { x: 32, y: nextY };
-      if (!ann.cardWidth) ann.cardWidth = defW;
       el.style.left = ann.cardPos.x + "px";
       el.style.top = ann.cardPos.y + "px";
-      el.style.width = ann.cardWidth + "px";
+      if (ann.cardWidth) {
+        el.style.width = ann.cardWidth + "px";
+      } else {
+        el.style.maxWidth = maxW + "px";
+      }
       el.style.zIndex = ann.zIndex || 1;
       nextY = ann.cardPos.y + el.offsetHeight + 12;
     }

@@ -88,7 +88,7 @@
     });
   });
 
-  applyBtn.addEventListener("click", applyCode);
+  applyBtn.addEventListener("click", resetAnnotations);
   addAnnotationBtn.addEventListener("click", addAnnotation);
   downloadBtn.addEventListener("click", downloadPNG);
 
@@ -304,6 +304,14 @@
   // === Apply Code ===
   function applyCode() {
     liveUpdate();
+  }
+  // Reset button: clear annotations and redraw the current code
+  function resetAnnotations() {
+    annotations = [];
+    nextId = 1;
+    topZ = 1;
+    liveUpdate();
+    renderAll();
   }
 
   // === Render code (pure Prism) ===

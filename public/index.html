@@ -168,6 +168,11 @@
           <div class="section-title">
             <span class="section-label">Annotations</span>
             <span class="section-count" id="ann-count">0</span>
+            <span class="word-budget" id="word-budget" title="Words in all annotations (they count toward your IA word limit)">
+              <span id="word-total">0</span> words
+              <span class="word-limit-sep">/</span>
+              <input type="number" id="word-limit" min="1" placeholder="limit" aria-label="Word limit for annotations" />
+            </span>
           </div>
           <div id="annotations-container"></div>
         </div>
@@ -188,6 +193,22 @@
               <input type="checkbox" id="show-code-toggle" />
               <span>Show code</span>
             </label>
+            <button id="doc-copy-btn" class="btn btn-export" disabled title="Copy an image plus the annotations as real text, for pasting into Word or Google Docs">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              Copy for Docs
+            </button>
             <button id="download-btn" class="btn btn-export" disabled>
               <svg
                 width="14"
@@ -349,6 +370,29 @@
     </div>
 
     <!-- Toast (export errors etc.) -->
+    <!-- Copy for Docs modal -->
+    <div id="doc-modal" class="modal-overlay" style="display: none">
+      <div class="modal-container">
+        <div class="modal-header">
+          <span class="modal-title">Copy for Word / Google Docs</span>
+          <button class="modal-close" id="doc-close-btn">&times;</button>
+        </div>
+        <div class="modal-body doc-body">
+          <p class="doc-note">
+            The annotations are pasted as normal text under the image, so they
+            are included in the word count of Word and Google Docs.
+            <strong id="doc-words">0</strong> words.
+          </p>
+          <div class="modal-preview-scroll doc-preview" id="doc-preview"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="doc-copy-img-btn">Copy image only</button>
+          <button class="btn btn-ghost" id="doc-copy-text-btn">Copy text only</button>
+          <button class="btn btn-accent" id="doc-copy-all-btn">Copy image + text</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast" class="toast" role="alert" aria-live="assertive"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>

@@ -1266,3 +1266,76 @@ body {
     height: 20px;
   }
 }
+
+/* === Word count & Copy for Docs === */
+.section-title {
+  gap: 8px;
+}
+.section-title .section-count {
+  margin-right: auto;
+}
+.word-budget {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.word-budget input {
+  width: 58px;
+  padding: 2px 6px;
+  font: inherit;
+  color: var(--text-1);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.word-budget.over,
+.ann-words.over {
+  color: #d03030;
+  font-weight: 700;
+}
+.ann-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.ann-words {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.doc-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.doc-preview {
+  padding: 20px 24px;
+  background: #ffffff;
+  color: #1a1a1a;
+  font-family: Calibri, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.doc-preview img {
+  max-width: 100%;
+  height: auto;
+}
+.doc-preview ol {
+  margin: 10px 0 0;
+  padding-left: 24px;
+}
+@media (max-width: 600px) {
+  .modal-footer {
+    flex-wrap: wrap;
+  }
+}
+.doc-body {
+  display: block;
+}

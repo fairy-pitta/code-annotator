@@ -1,7 +1,9 @@
 (function () {
   "use strict";
 
+  // null = theme default text color
   const COLORS = [
+    null,
     "#1a1a1a",
     "#444444",
     "#888888",
@@ -14,6 +16,7 @@
     "#be185d",
   ];
   const TEXT_COLORS = [
+    null,
     "#1a1a1a",
     "#444444",
     "#ffffff",
@@ -426,8 +429,8 @@
       startOffset: pendingSelection.startOffset,
       endOffset: pendingSelection.endOffset,
       description: "",
-      color: "#1a1a1a",
-      textColor: "#1a1a1a",
+      color: null,
+      textColor: null,
       fontSize: 14,
       customCodePt: null,
       customCardPt: null,
@@ -459,6 +462,7 @@
     renderAnnotationCards();
     layoutCards();
     raf2(drawOverlays);
+    saveState();
   }
   function setTextColor(id, color) {
     const ann = annotations.find((a) => a.id === id);
@@ -468,6 +472,7 @@
     renderAnnotationCards();
     layoutCards();
     raf2(drawOverlays);
+    saveState();
   }
   function setFontSize(id, size) {
     const ann = annotations.find((a) => a.id === id);
@@ -477,6 +482,7 @@
     renderAnnotationCards();
     layoutCards();
     raf2(drawOverlays);
+    saveState();
   }
 
   // === Render All ===
@@ -507,43 +513,51 @@
     annotationsContainer.innerHTML = annotations
       .map(
         (ann) => `
-      <div class="annotation-item" data-id="${ann.id}" style="border-left-color:${ann.color};">
-        <button class="delete-btn" onclick="window._del(${ann.id})" title="Delete">&times;</button>
+      <div class="annotation-item" data-id="${ann.id}" style="border-left-color:${escAttr(ann.color || "var(--text-1)")};">
+        <button class="delete-btn" data-action="delete" title="Delete">&times;</button>
         <div class="selected-text-preview">
-          <span class="annotation-color-dot" style="background:${ann.color};"></span>
+          <span class="annotation-color-dot" style="background:${escAttr(ann.color || "var(--text-1)")};"></span>
           <span>${esc(trunc(ann.text, 40))}</span>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Highlight</span>
-          <div class="color-picker">${COLORS.map((c) => `<span class="color-swatch${c === ann.color ? " active" : ""}" style="background:${c}" onclick="window._color(${ann.id},'${c}')"></span>`).join("")}</div>
+          <div class="color-picker">${swatches(COLORS, ann.color, "color")}</div>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Text</span>
-          <div class="color-picker">${TEXT_COLORS.map((c) => `<span class="color-swatch${c === ann.textColor ? " active" : ""}" style="background:${c}" onclick="window._txtColor(${ann.id},'${c}')"></span>`).join("")}</div>
+          <div class="color-picker">${swatches(TEXT_COLORS, ann.textColor, "text-color")}</div>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Size</span>
-          <div class="size-picker">${FONT_SIZES.map((s) => `<button class="size-btn${s === ann.fontSize ? " active" : ""}" onclick="window._fontSize(${ann.id},${s})">${s}</button>`).join("")}</div>
+          <div class="size-picker">${FONT_SIZES.map((s) => `<button class="size-btn${s === ann.fontSize ? " active" : ""}" data-action="font-size" data-size="${s}">${s}</button>`).join("")}</div>
         </div>
         <div class="fmt-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('bold')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('italic')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('underline')" title="Underline"><u>U</u></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('strikeThrough')" title="Strikethrough"><s>S</s></button>
+          <button class="fmt-btn" data-fmt="bold" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" data-fmt="italic" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" data-fmt="underline" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" data-fmt="strikeThrough" title="Strikethrough"><s>S</s></button>
           <span class="fmt-sep"></span>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('insertUnorderedList')" title="Bullet list">
+          <button class="fmt-btn" data-fmt="insertUnorderedList" title="Bullet list">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/></svg>
           </button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('insertOrderedList')" title="Numbered list">
+          <button class="fmt-btn" data-fmt="insertOrderedList" title="Numbered list">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="6" x2="20" y2="6"/><line x1="10" y1="12" x2="20" y2="12"/><line x1="10" y1="18" x2="20" y2="18"/><text x="2" y="8" font-size="8" fill="currentColor" stroke="none" font-weight="700">1</text><text x="2" y="14" font-size="8" fill="currentColor" stroke="none" font-weight="700">2</text><text x="2" y="20" font-size="8" fill="currentColor" stroke="none" font-weight="700">3</text></svg>
           </button>
         </div>
         <div class="editable-area" contenteditable="true" data-ann-id="${ann.id}"
-             oninput="window._descHtml(${ann.id}, this)"
              data-placeholder="Describe what this code does...">${ann.description}</div>
       </div>`,
       )
       .join("");
+  }
+  function swatches(list, cur, action) {
+    return list.map((c) => `<span class="color-swatch${c ? "" : " auto"}${c === cur ? " active" : ""}" data-action="${action}" data-color="${escAttr(c || "")}"${c ? ` style="background:${escAttr(c)}"` : ""} title="${c ? escAttr(c) : "Auto (theme)"}"></span>`).join("");
+  }
+  function escAttr(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function themeTextColor() {
+    return getComputedStyle(htmlEl).getPropertyValue("--text-1").trim() || "#1a1a1a";
   }
 
   // === Cards (absolute positioned) ===
@@ -558,7 +572,7 @@
       <div class="annotation-card" data-id="${ann.id}" id="card-${ann.id}" style="z-index:${ann.zIndex || 1};">
         <div class="card-body">
           <div class="card-code">${esc(ann.text)}</div>
-          <div class="card-text" style="font-size:${ann.fontSize}px;color:${ann.textColor};">${ann.description}</div>
+          <div class="card-text" style="font-size:${ann.fontSize}px;${ann.textColor ? `color:${escAttr(ann.textColor)};` : ""}">${ann.description}</div>
         </div>
         <div class="card-resize-grip"></div>
       </div>`,
@@ -629,7 +643,9 @@
     ctx.clearRect(0, 0, cW, cH);
 
     const pad = 5;
+    const defColor = themeTextColor();
     for (const ann of annotations) {
+      const color = ann.color || defColor;
       const range = charOffsetToRange(
         codeContent,
         ann.startOffset,
@@ -645,13 +661,13 @@
         rw = box.w + pad * 2,
         rh = box.h + pad * 2;
       ctx.save();
-      ctx.fillStyle = ann.color;
+      ctx.fillStyle = color;
       ctx.globalAlpha = 0.08;
       roundRect(ctx, rx, ry, rw, rh, 5);
       ctx.fill();
       ctx.restore();
       ctx.save();
-      ctx.strokeStyle = ann.color;
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.globalAlpha = 0.7;
       roundRect(ctx, rx, ry, rw, rh, 5);
@@ -701,7 +717,7 @@
 
       const codePt = ann.customCodePt || { x: defCode.x, y: defCode.y };
       const cardPt = ann.customCardPt || { x: defCard.x, y: defCard.y };
-      drawnArrows.push({ annId: ann.id, codePt, cardPt, color: ann.color });
+      drawnArrows.push({ annId: ann.id, codePt, cardPt, color });
 
       // Bezier from card to code
       const x1 = cardPt.x,
@@ -714,7 +730,7 @@
         cp2y = y2 - (y2 - y1) * 0.45;
 
       ctx.save();
-      ctx.strokeStyle = ann.color;
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
       ctx.globalAlpha = 0.6;
@@ -726,7 +742,7 @@
 
       // Start dot (card)
       ctx.save();
-      ctx.fillStyle = ann.color;
+      ctx.fillStyle = color;
       ctx.globalAlpha = 0.85;
       ctx.beginPath();
       ctx.arc(x1, y1, 4, 0, Math.PI * 2);
@@ -737,7 +753,7 @@
       const tx = x2 - cp2x,
         ty = y2 - cp2y;
       const angle = Math.atan2(ty, tx);
-      drawArrowhead(ctx, x2, y2, angle, 9, ann.color);
+      drawArrowhead(ctx, x2, y2, angle, 9, color);
     }
     if (arrowDrag) drawHandles(ctx);
   }
@@ -1068,6 +1084,7 @@
       exportArea.classList.remove("resizing");
       exportResize = null;
     }
+    saveState();
   }
   document.addEventListener("pointerup", endDrag);
   document.addEventListener("pointercancel", endDrag);
@@ -1453,14 +1470,7 @@
     if (document.visibilityState === "hidden") writeState();
   });
 
-  window._del = deleteAnnotation;
-  window._color = setColor;
-  window._txtColor = setTextColor;
-  window._fontSize = setFontSize;
-  window._fmt = function (cmd, val) {
-    document.execCommand(cmd, false, val || null);
-  };
-  window._descHtml = function (id, el) {
+  function setDescription(id, el) {
     const ann = annotations.find((a) => a.id === id);
     if (ann) {
       ann.description = el.innerHTML;
@@ -1469,7 +1479,36 @@
       layoutCards();
       raf2(drawOverlays);
     }
-  };
+  }
+
+  // === Sidebar event delegation ===
+  const itemId = (el) => Number(el.closest(".annotation-item").dataset.id);
+  annotationsContainer.addEventListener("mousedown", (e) => {
+    const btn = e.target.closest(".fmt-btn[data-fmt]");
+    if (!btn) return;
+    e.preventDefault();
+    document.execCommand(btn.dataset.fmt, false, null);
+  });
+  annotationsContainer.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-action]");
+    if (!el || !annotationsContainer.contains(el)) return;
+    const id = itemId(el), act = el.dataset.action;
+    if (act === "delete") deleteAnnotation(id);
+    else if (act === "color") setColor(id, el.dataset.color || null);
+    else if (act === "text-color") setTextColor(id, el.dataset.color || null);
+    else if (act === "font-size") setFontSize(id, Number(el.dataset.size));
+  });
+  annotationsContainer.addEventListener("input", (e) => {
+    const ed = e.target.closest(".editable-area");
+    if (ed) setDescription(Number(ed.dataset.annId), ed);
+  });
+  annotationsContainer.addEventListener("paste", (e) => {
+    const ed = e.target.closest(".editable-area");
+    if (!ed) return;
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+    document.execCommand("insertText", false, text);
+  });
 
   initTheme();
   restoreState();

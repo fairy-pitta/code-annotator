@@ -1,7 +1,9 @@
 (function () {
   "use strict";
 
+  // null = theme default text color
   const COLORS = [
+    null,
     "#1a1a1a",
     "#444444",
     "#888888",
@@ -14,6 +16,7 @@
     "#be185d",
   ];
   const TEXT_COLORS = [
+    null,
     "#1a1a1a",
     "#444444",
     "#ffffff",
@@ -85,7 +88,7 @@
     });
   });
 
-  applyBtn.addEventListener("click", applyCode);
+  applyBtn.addEventListener("click", resetAnnotations);
   addAnnotationBtn.addEventListener("click", addAnnotation);
   downloadBtn.addEventListener("click", downloadPNG);
 
@@ -104,82 +107,133 @@
   });
 
   // === Smart editor keys ===
+  // Replace [from, to) keeping native undo history; falls back to setRangeText.
+  function editRange(ta, from, to, text) {
+    if (from === to && !text) return;
+    ta.focus();
+    ta.setSelectionRange(from, to);
+    let ok = false;
+    try {
+      ok = document.execCommand(text ? "insertText" : "delete", false, text);
+    } catch (_) {}
+    if (!ok) {
+      ta.setRangeText(text, from, to, "end");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
+  // Lines touched by [s, e]; a last line reached only at column 0 is excluded.
+  function lineBlock(val, s, e) {
+    const from = val.lastIndexOf("\n", s - 1) + 1;
+    if (e > s && val[e - 1] === "\n") e--;
+    let to = val.indexOf("\n", e);
+    if (to < 0) to = val.length;
+    return { from, to, lines: val.substring(from, to).split("\n") };
+  }
+
+  // Map an offset through removed[i] chars dropped at the start of line i.
+  function mapPos(pos, from, lines, removed) {
+    let shift = 0,
+      ls = from;
+    for (let i = 0; i < lines.length && ls < pos; i++) {
+      shift += Math.min(removed[i], pos - ls);
+      ls += lines[i].length + 1;
+    }
+    return pos - shift;
+  }
+
+  function indentBlock(val, s, e) {
+    const b = lineBlock(val, s, e);
+    const text = b.lines.map((l) => "  " + l).join("\n");
+    return {
+      from: b.from,
+      to: b.to,
+      text,
+      selStart: s === b.from ? s : s + 2,
+      selEnd: e + 2 * b.lines.length,
+    };
+  }
+
+  function dedentBlock(val, s, e) {
+    const b = lineBlock(val, s, e);
+    const removed = b.lines.map((l) =>
+      l.startsWith("  ") ? 2 : l[0] === " " || l[0] === "\t" ? 1 : 0,
+    );
+    const text = b.lines.map((l, i) => l.substring(removed[i])).join("\n");
+    return {
+      from: b.from,
+      to: b.to,
+      text,
+      changed: removed.some((r) => r > 0),
+      selStart: mapPos(s, b.from, b.lines, removed),
+      selEnd: mapPos(e, b.from, b.lines, removed),
+    };
+  }
+
+  // Enter at [s, e]: keep indent, +2 after an opener; caret is relative to s.
+  function enterText(val, s, e) {
+    const lineStart = val.lastIndexOf("\n", s - 1) + 1;
+    const indent = val.substring(lineStart, s).match(/^[ \t]*/)[0];
+    const opened = s > 0 && "{([".includes(val[s - 1]);
+    let text = "\n" + indent + (opened ? "  " : "");
+    const caret = text.length;
+    if (opened && e < val.length && "})]".includes(val[e]))
+      text += "\n" + indent;
+    return { text, caret };
+  }
+
+  // Start of the indent to drop when a closer is typed on a blank line, or -1.
+  function closeDedent(val, s) {
+    const before = val.substring(val.lastIndexOf("\n", s - 1) + 1, s);
+    if (!/^[ \t]+$/.test(before)) return -1;
+    return before.endsWith("  ") ? s - 2 : before.endsWith("\t") ? s - 1 : -1;
+  }
+
   codeInput.addEventListener("keydown", function (e) {
+    // Leave IME composition (e.g. Japanese Enter) and modified keys alone
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const ta = this;
     const s = ta.selectionStart,
       end = ta.selectionEnd;
     const val = ta.value;
 
-    // Tab → insert 2 spaces
+    // Tab → insert 2 spaces, or indent every selected line
     if (e.key === "Tab" && !e.shiftKey) {
       e.preventDefault();
-      ta.value = val.substring(0, s) + "  " + val.substring(end);
-      ta.selectionStart = ta.selectionEnd = s + 2;
+      if (!val.substring(s, end).includes("\n"))
+        return editRange(ta, s, end, "  ");
+      const r = indentBlock(val, s, end);
+      editRange(ta, r.from, r.to, r.text);
+      ta.setSelectionRange(r.selStart, r.selEnd);
       return;
     }
 
-    // Shift+Tab → dedent current line
+    // Shift+Tab → dedent current / selected lines
     if (e.key === "Tab" && e.shiftKey) {
       e.preventDefault();
-      const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-      const line = val.substring(lineStart);
-      if (line.startsWith("  ")) {
-        ta.value = val.substring(0, lineStart) + line.substring(2);
-        ta.selectionStart = ta.selectionEnd = Math.max(lineStart, s - 2);
-      }
+      const r = dedentBlock(val, s, end);
+      if (!r.changed) return;
+      editRange(ta, r.from, r.to, r.text);
+      ta.setSelectionRange(r.selStart, r.selEnd);
       return;
     }
 
-    // Enter → auto-indent
+    // Enter → auto-indent (replaces selection)
     if (e.key === "Enter") {
       e.preventDefault();
-      const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-      const line = val.substring(lineStart, s);
-      const indent = line.match(/^(\s*)/)[1];
-      const charBefore = val[s - 1];
-      const charAfter = val[s];
-      const openers = "{([";
-      const closers = "})]";
-      let extra = "";
-
-      // Add indent after { ( [
-      if (openers.includes(charBefore)) {
-        extra = "  ";
-        // If closing bracket is right after cursor, put it on a new line
-        if (closers.includes(charAfter)) {
-          ta.value =
-            val.substring(0, s) +
-            "\n" +
-            indent +
-            extra +
-            "\n" +
-            indent +
-            val.substring(s);
-          ta.selectionStart = ta.selectionEnd =
-            s + 1 + indent.length + extra.length;
-          triggerLiveUpdate();
-          return;
-        }
-      }
-
-      ta.value =
-        val.substring(0, s) + "\n" + indent + extra + val.substring(end);
-      ta.selectionStart = ta.selectionEnd =
-        s + 1 + indent.length + extra.length;
-      triggerLiveUpdate();
+      const r = enterText(val, s, end);
+      editRange(ta, s, end, r.text);
+      ta.setSelectionRange(s + r.caret, s + r.caret);
       return;
     }
 
-    // Auto-dedent on } ) ]
-    if ("})".includes(e.key) || e.key === "]") {
-      const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-      const before = val.substring(lineStart, s);
-      if (before.match(/^\s+$/) && before.length >= 2) {
-        ta.value =
-          val.substring(0, lineStart) + before.substring(2) + val.substring(s);
-        ta.selectionStart = ta.selectionEnd = s - 2;
-        // Let the character be typed naturally after dedent
-      }
+    // Auto-dedent on } ) ] (one edit, so a single undo step)
+    if ((e.key === "}" || e.key === ")" || e.key === "]") && s === end) {
+      const from = closeDedent(val, s);
+      if (from < 0) return;
+      e.preventDefault();
+      editRange(ta, from, s, e.key);
     }
   });
 
@@ -192,21 +246,52 @@
   codeInput.addEventListener("input", triggerLiveUpdate);
   langSelect.addEventListener("change", triggerLiveUpdate);
 
+  let currentSrc = "";
   function liveUpdate() {
-    const newCode = codeInput.value.trim();
-    if (!newCode) return;
+    clearTimeout(liveTimer);
+    const n = normalizeCode(codeInput.value);
+    if (!n.code) return;
     currentLang = langSelect.value;
-    if (newCode !== currentCode) {
-      currentCode = newCode;
-      // Clear annotations only if code changed (offsets become invalid)
-      if (annotations.length > 0) {
-        annotations = [];
-        nextId = 1;
-        topZ = 1;
-      }
+    if (n.code !== currentCode) {
+      if (currentCode) shiftAnnotations(normalizeCode(currentSrc), n);
+      else annotations = [];
+      currentCode = n.code;
     }
+    currentSrc = n.src;
     renderAll();
     downloadBtn.disabled = false;
+  }
+
+  // Diff the raw input texts (so indent changes don't drop annotations)
+  // and map offsets through raw positions
+  function shiftAnnotations(o, n) {
+    const d = diffRange(o.src, n.src);
+    const delta = n.src.length - o.src.length;
+    const inv = new Array(n.src.length + 1).fill(-1);
+    n.offs.forEach((r, i) => { inv[r] = i; });
+    const lineOf = (s, i) => s.slice(0, i).split("\n").length;
+    const colOf = (s, i) => i - s.lastIndexOf("\n", i - 1) - 1;
+    annotations = annotations.filter((a) => {
+      let rs = o.offs[a.startOffset], re = o.offs[a.endOffset - 1] + 1;
+      if (rs === undefined || isNaN(re)) return false;
+      if (re > d.start && rs < d.oldEnd) return false;
+      if (rs >= d.oldEnd) { rs += delta; re += delta; }
+      while (rs < re && inv[rs] < 0) rs++;
+      while (re > rs && inv[re - 1] < 0) re--;
+      if (rs >= re) return false;
+      const s = inv[rs], e = inv[re - 1] + 1;
+      // Arrow tip was placed for the old line/column; reset it when either moves
+      const os = a.startOffset;
+      if (
+        lineOf(o.code, os) !== lineOf(n.code, s) ||
+        colOf(o.code, os) !== colOf(n.code, s)
+      )
+        a.customCodePt = null;
+      a.startOffset = s;
+      a.endOffset = e;
+      a.text = n.code.slice(s, e);
+      return true;
+    });
   }
 
   const hintBadge = document.createElement("div");
@@ -214,18 +299,19 @@
   hintBadge.textContent = "Drag to select code, then annotate";
   codeWrapper.appendChild(hintBadge);
 
-  codeInput.value = `function greet(name) {\n  const message = \`Hello, \${name}!\`;\n  console.log(message);\n  return message;\n}\n\nconst result = greet("World");`;
+  const SAMPLE_CODE = `function greet(name) {\n  const message = \`Hello, \${name}!\`;\n  console.log(message);\n  return message;\n}\n\nconst result = greet("World");`;
 
   // === Apply Code ===
   function applyCode() {
-    currentCode = codeInput.value.trim();
-    if (!currentCode) return;
-    currentLang = langSelect.value;
+    liveUpdate();
+  }
+  // Reset button: clear annotations and redraw the current code
+  function resetAnnotations() {
     annotations = [];
     nextId = 1;
     topZ = 1;
+    liveUpdate();
     renderAll();
-    downloadBtn.disabled = false;
   }
 
   // === Render code (pure Prism) ===
@@ -351,8 +437,8 @@
       startOffset: pendingSelection.startOffset,
       endOffset: pendingSelection.endOffset,
       description: "",
-      color: "#1a1a1a",
-      textColor: "#1a1a1a",
+      color: null,
+      textColor: null,
       fontSize: 14,
       customCodePt: null,
       customCardPt: null,
@@ -384,6 +470,7 @@
     renderAnnotationCards();
     layoutCards();
     raf2(drawOverlays);
+    saveState();
   }
   function setTextColor(id, color) {
     const ann = annotations.find((a) => a.id === id);
@@ -393,6 +480,7 @@
     renderAnnotationCards();
     layoutCards();
     raf2(drawOverlays);
+    saveState();
   }
   function setFontSize(id, size) {
     const ann = annotations.find((a) => a.id === id);
@@ -402,6 +490,7 @@
     renderAnnotationCards();
     layoutCards();
     raf2(drawOverlays);
+    saveState();
   }
 
   // === Render All ===
@@ -415,6 +504,7 @@
       layoutCards();
       raf2(drawOverlays);
     });
+    saveState();
   }
 
   function raf2(fn) {
@@ -431,43 +521,51 @@
     annotationsContainer.innerHTML = annotations
       .map(
         (ann) => `
-      <div class="annotation-item" data-id="${ann.id}" style="border-left-color:${ann.color};">
-        <button class="delete-btn" onclick="window._del(${ann.id})" title="Delete">&times;</button>
+      <div class="annotation-item" data-id="${ann.id}" style="border-left-color:${escAttr(ann.color || "var(--text-1)")};">
+        <button class="delete-btn" data-action="delete" title="Delete">&times;</button>
         <div class="selected-text-preview">
-          <span class="annotation-color-dot" style="background:${ann.color};"></span>
+          <span class="annotation-color-dot" style="background:${escAttr(ann.color || "var(--text-1)")};"></span>
           <span>${esc(trunc(ann.text, 40))}</span>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Highlight</span>
-          <div class="color-picker">${COLORS.map((c) => `<span class="color-swatch${c === ann.color ? " active" : ""}" style="background:${c}" onclick="window._color(${ann.id},'${c}')"></span>`).join("")}</div>
+          <div class="color-picker">${swatches(COLORS, ann.color, "color")}</div>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Text</span>
-          <div class="color-picker">${TEXT_COLORS.map((c) => `<span class="color-swatch${c === ann.textColor ? " active" : ""}" style="background:${c}" onclick="window._txtColor(${ann.id},'${c}')"></span>`).join("")}</div>
+          <div class="color-picker">${swatches(TEXT_COLORS, ann.textColor, "text-color")}</div>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Size</span>
-          <div class="size-picker">${FONT_SIZES.map((s) => `<button class="size-btn${s === ann.fontSize ? " active" : ""}" onclick="window._fontSize(${ann.id},${s})">${s}</button>`).join("")}</div>
+          <div class="size-picker">${FONT_SIZES.map((s) => `<button class="size-btn${s === ann.fontSize ? " active" : ""}" data-action="font-size" data-size="${s}">${s}</button>`).join("")}</div>
         </div>
         <div class="fmt-toolbar">
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('bold')" title="Bold"><b>B</b></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('italic')" title="Italic"><i>I</i></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('underline')" title="Underline"><u>U</u></button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('strikeThrough')" title="Strikethrough"><s>S</s></button>
+          <button class="fmt-btn" data-fmt="bold" title="Bold"><b>B</b></button>
+          <button class="fmt-btn" data-fmt="italic" title="Italic"><i>I</i></button>
+          <button class="fmt-btn" data-fmt="underline" title="Underline"><u>U</u></button>
+          <button class="fmt-btn" data-fmt="strikeThrough" title="Strikethrough"><s>S</s></button>
           <span class="fmt-sep"></span>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('insertUnorderedList')" title="Bullet list">
+          <button class="fmt-btn" data-fmt="insertUnorderedList" title="Bullet list">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/></svg>
           </button>
-          <button class="fmt-btn" onmousedown="event.preventDefault();window._fmt('insertOrderedList')" title="Numbered list">
+          <button class="fmt-btn" data-fmt="insertOrderedList" title="Numbered list">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="10" y1="6" x2="20" y2="6"/><line x1="10" y1="12" x2="20" y2="12"/><line x1="10" y1="18" x2="20" y2="18"/><text x="2" y="8" font-size="8" fill="currentColor" stroke="none" font-weight="700">1</text><text x="2" y="14" font-size="8" fill="currentColor" stroke="none" font-weight="700">2</text><text x="2" y="20" font-size="8" fill="currentColor" stroke="none" font-weight="700">3</text></svg>
           </button>
         </div>
         <div class="editable-area" contenteditable="true" data-ann-id="${ann.id}"
-             oninput="window._descHtml(${ann.id}, this)"
              data-placeholder="Describe what this code does...">${ann.description}</div>
       </div>`,
       )
       .join("");
+  }
+  function swatches(list, cur, action) {
+    return list.map((c) => `<span class="color-swatch${c ? "" : " auto"}${c === cur ? " active" : ""}" data-action="${action}" data-color="${escAttr(c || "")}"${c ? ` style="background:${escAttr(c)}"` : ""} title="${c ? escAttr(c) : "Auto (theme)"}"></span>`).join("");
+  }
+  function escAttr(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function themeTextColor() {
+    return getComputedStyle(htmlEl).getPropertyValue("--text-1").trim() || "#1a1a1a";
   }
 
   // === Cards (absolute positioned) ===
@@ -482,7 +580,7 @@
       <div class="annotation-card" data-id="${ann.id}" id="card-${ann.id}" style="z-index:${ann.zIndex || 1};">
         <div class="card-body">
           <div class="card-code">${esc(ann.text)}</div>
-          <div class="card-text" style="font-size:${ann.fontSize}px;color:${ann.textColor};">${ann.description}</div>
+          <div class="card-text" style="font-size:${ann.fontSize}px;${ann.textColor ? `color:${escAttr(ann.textColor)};` : ""}">${ann.description}</div>
         </div>
         <div class="card-resize-grip"></div>
       </div>`,
@@ -505,9 +603,13 @@
       el.style.top = ann.cardPos.y + "px";
       if (ann.cardWidth) {
         el.style.width = ann.cardWidth + "px";
+        el.style.maxWidth = "";
       } else {
+        el.style.width = "";
         el.style.maxWidth = maxW + "px";
       }
+      el.style.height = ann.cardHeight ? ann.cardHeight + "px" : "";
+      el.style.overflow = ann.cardHeight ? "hidden" : "";
       el.style.zIndex = ann.zIndex || 1;
       nextY = ann.cardPos.y + el.offsetHeight + 12;
     }
@@ -549,7 +651,9 @@
     ctx.clearRect(0, 0, cW, cH);
 
     const pad = 5;
+    const defColor = themeTextColor();
     for (const ann of annotations) {
+      const color = ann.color || defColor;
       const range = charOffsetToRange(
         codeContent,
         ann.startOffset,
@@ -565,13 +669,13 @@
         rw = box.w + pad * 2,
         rh = box.h + pad * 2;
       ctx.save();
-      ctx.fillStyle = ann.color;
+      ctx.fillStyle = color;
       ctx.globalAlpha = 0.08;
       roundRect(ctx, rx, ry, rw, rh, 5);
       ctx.fill();
       ctx.restore();
       ctx.save();
-      ctx.strokeStyle = ann.color;
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.globalAlpha = 0.7;
       roundRect(ctx, rx, ry, rw, rh, 5);
@@ -621,7 +725,7 @@
 
       const codePt = ann.customCodePt || { x: defCode.x, y: defCode.y };
       const cardPt = ann.customCardPt || { x: defCard.x, y: defCard.y };
-      drawnArrows.push({ annId: ann.id, codePt, cardPt, color: ann.color });
+      drawnArrows.push({ annId: ann.id, codePt, cardPt, color });
 
       // Bezier from card to code
       const x1 = cardPt.x,
@@ -634,7 +738,7 @@
         cp2y = y2 - (y2 - y1) * 0.45;
 
       ctx.save();
-      ctx.strokeStyle = ann.color;
+      ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
       ctx.globalAlpha = 0.6;
@@ -646,7 +750,7 @@
 
       // Start dot (card)
       ctx.save();
-      ctx.fillStyle = ann.color;
+      ctx.fillStyle = color;
       ctx.globalAlpha = 0.85;
       ctx.beginPath();
       ctx.arc(x1, y1, 4, 0, Math.PI * 2);
@@ -657,7 +761,7 @@
       const tx = x2 - cp2x,
         ty = y2 - cp2y;
       const angle = Math.atan2(ty, tx);
-      drawArrowhead(ctx, x2, y2, angle, 9, ann.color);
+      drawArrowhead(ctx, x2, y2, angle, 9, color);
     }
     if (arrowDrag) drawHandles(ctx);
   }
@@ -716,19 +820,20 @@
   let codeResize = null; // { startW, startH, startX, startY }
   let exportResize = null; // { edge:'r'|'b'|'br', startW, startH, startX, startY }
   const HR = 12;
+  const HR_TOUCH = 20;
 
   // Custom sizes (null = auto)
   let codeBoxSize = { w: null, h: null };
   let exportCustomSize = { w: null, h: null };
 
-  function arrowHit(cx, cy) {
+  function arrowHit(cx, cy, r = HR) {
     const eR = exportArea.getBoundingClientRect();
     const mx = cx - eR.left,
       my = cy - eR.top;
     for (const a of drawnArrows) {
-      if (dist(mx, my, a.codePt.x, a.codePt.y) < HR)
+      if (dist(mx, my, a.codePt.x, a.codePt.y) < r)
         return { annId: a.annId, which: "code" };
-      if (dist(mx, my, a.cardPt.x, a.cardPt.y) < HR)
+      if (dist(mx, my, a.cardPt.x, a.cardPt.y) < r)
         return { annId: a.annId, which: "card" };
     }
     return null;
@@ -761,8 +866,13 @@
     // don't clear min-height here, updateExportHeight handles it
   }
 
-  // --- Unified mousemove ---
-  document.addEventListener("mousemove", (e) => {
+  const isDragging = () =>
+    !!(arrowDrag || cardDrag || cardResize || codeResize || exportResize);
+  const hitRadius = (e) => (e.pointerType === "mouse" ? HR : HR_TOUCH);
+
+  // --- Unified pointermove ---
+  document.addEventListener("pointermove", (e) => {
+    if (!e.isPrimary) return;
     // Arrow drag
     if (arrowDrag) {
       const ann = annotations.find((a) => a.id === arrowDrag.annId);
@@ -803,11 +913,12 @@
         cardResize.startW + (e.clientX - cardResize.startX),
       );
       el.style.width = ann.cardWidth + "px";
-      const newH = Math.max(
+      el.style.maxWidth = "";
+      ann.cardHeight = Math.max(
         60,
         cardResize.startH + (e.clientY - cardResize.startY),
       );
-      el.style.height = newH + "px";
+      el.style.height = ann.cardHeight + "px";
       el.style.overflow = "hidden";
       drawOverlays();
       updateExportHeight();
@@ -846,89 +957,95 @@
       return;
     }
 
-    // Hover: arrow endpoints
+    // Hover: arrow endpoints (mouse only)
+    if (e.pointerType !== "mouse") return;
     const hit = arrowHit(e.clientX, e.clientY);
     arrowsCanvas.style.pointerEvents = hit ? "auto" : "none";
     arrowsCanvas.style.cursor = hit ? "grab" : "";
   });
 
-  // --- Arrow mousedown ---
-  arrowsCanvas.addEventListener("mousedown", (e) => {
-    const hit = arrowHit(e.clientX, e.clientY);
-    if (hit) {
+  // --- Arrow pointerdown (capture: works without hover on touch) ---
+  exportArea.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!e.isPrimary) return;
+      const hit = arrowHit(e.clientX, e.clientY, hitRadius(e));
+      if (!hit) return;
       arrowDrag = hit;
       arrowsCanvas.style.cursor = "grabbing";
-      e.preventDefault();
       e.stopPropagation();
       drawOverlays();
-    }
-  });
-  arrowsCanvas.addEventListener("dblclick", (e) => {
-    const hit = arrowHit(e.clientX, e.clientY);
-    if (hit) {
+    },
+    true,
+  );
+  exportArea.addEventListener(
+    "dblclick",
+    (e) => {
+      const hit = arrowHit(e.clientX, e.clientY);
+      if (!hit) return;
       const ann = annotations.find((a) => a.id === hit.annId);
       if (ann) {
         if (hit.which === "code") ann.customCodePt = null;
         else ann.customCardPt = null;
         drawOverlays();
       }
-    }
+      e.stopPropagation();
+    },
+    true,
+  );
+  // Arrow ends may sit on scrollable code: block the touch scroll there
+  exportArea.addEventListener(
+    "touchstart",
+    (e) => {
+      if (arrowDrag) e.preventDefault();
+    },
+    { passive: false },
+  );
+  // Block text selection / focus change while dragging
+  document.addEventListener(
+    "mousedown",
+    (e) => {
+      if (isDragging()) e.preventDefault();
+    },
+    true,
+  );
+  document.addEventListener("selectstart", (e) => {
+    if (isDragging()) e.preventDefault();
   });
 
   // --- Export area resize handles ---
-  exportArea
-    .querySelector(".export-handle-r")
-    .addEventListener("mousedown", (e) => {
-      exportResize = {
-        edge: "r",
-        startW: exportArea.offsetWidth,
-        startH: exportArea.offsetHeight,
-        startX: e.clientX,
-        startY: e.clientY,
-      };
-      e.preventDefault();
-    });
-  exportArea
-    .querySelector(".export-handle-b")
-    .addEventListener("mousedown", (e) => {
-      exportResize = {
-        edge: "b",
-        startW: exportArea.offsetWidth,
-        startH: exportArea.offsetHeight,
-        startX: e.clientX,
-        startY: e.clientY,
-      };
-      e.preventDefault();
-    });
-  exportArea
-    .querySelector(".export-handle-br")
-    .addEventListener("mousedown", (e) => {
-      exportResize = {
-        edge: "br",
-        startW: exportArea.offsetWidth,
-        startH: exportArea.offsetHeight,
-        startX: e.clientX,
-        startY: e.clientY,
-      };
-      e.preventDefault();
-    });
+  ["r", "b", "br"].forEach((edge) => {
+    exportArea
+      .querySelector(`.export-handle-${edge}`)
+      .addEventListener("pointerdown", (e) => {
+        if (!e.isPrimary) return;
+        exportResize = {
+          edge,
+          startW: exportArea.offsetWidth,
+          startH: exportArea.offsetHeight,
+          startX: e.clientX,
+          startY: e.clientY,
+        };
+      });
+  });
 
   // --- Code box resize ---
   codeWrapper
     .querySelector(".code-resize-grip")
-    .addEventListener("mousedown", (e) => {
+    .addEventListener("pointerdown", (e) => {
+      if (!e.isPrimary) return;
       codeResize = {
         startW: codeWrapper.offsetWidth,
         startH: codeWrapper.offsetHeight,
         startX: e.clientX,
         startY: e.clientY,
       };
-      e.preventDefault();
       e.stopPropagation();
     });
 
   // --- Card drag & resize (delegation) ---
-  exportArea.addEventListener("mousedown", (e) => {
+  exportArea.addEventListener("pointerdown", (e) => {
+    if (!e.isPrimary) return;
     if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
     if (e.target.closest(".export-handle")) return; // handled above
 
@@ -950,7 +1067,6 @@
         startX: e.clientX,
         startY: e.clientY,
       };
-      e.preventDefault();
       return;
     }
     cardDrag = {
@@ -958,11 +1074,11 @@
       offX: e.clientX - eR.left - (ann.cardPos ? ann.cardPos.x : 0),
       offY: e.clientY - eR.top - (ann.cardPos ? ann.cardPos.y : 0),
     };
-    e.preventDefault();
   });
 
-  // --- Unified mouseup ---
-  document.addEventListener("mouseup", () => {
+  // --- Unified pointerup / pointercancel ---
+  function endDrag(e) {
+    if (!e.isPrimary) return;
     if (arrowDrag) {
       arrowDrag = null;
       arrowsCanvas.style.cursor = "";
@@ -976,6 +1092,23 @@
       exportArea.classList.remove("resizing");
       exportResize = null;
     }
+    saveState();
+  }
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
+
+  // Dblclick on card resize grip to reset to auto size
+  exportArea.addEventListener("dblclick", (e) => {
+    const grip = e.target.closest(".card-resize-grip");
+    if (!grip) return;
+    const ann = annotations.find(
+      (a) => a.id === parseInt(grip.closest(".annotation-card").dataset.id),
+    );
+    if (!ann) return;
+    ann.cardWidth = null;
+    ann.cardHeight = null;
+    layoutCards();
+    raf2(drawOverlays);
   });
 
   // Dblclick on code resize grip to reset
@@ -1003,19 +1136,29 @@
   previewScroll.addEventListener("scroll", () =>
     requestAnimationFrame(drawOverlays),
   );
+
+  // Keep manual layout on resize; only pull cards back inside the export area
+  function fitCardsToExport() {
+    const maxW = exportArea.clientWidth;
+    for (const ann of annotations) {
+      if (ann.cardWidth && ann.cardWidth > maxW - 16)
+        ann.cardWidth = Math.max(140, maxW - 16);
+      if (!ann.cardPos) continue;
+      const el = document.getElementById(`card-${ann.id}`);
+      const w = ann.cardWidth || (el ? el.offsetWidth : 0);
+      if (ann.cardPos.x + w > maxW)
+        ann.cardPos = { x: Math.max(0, maxW - w), y: ann.cardPos.y };
+    }
+  }
+  let resizeRaf = null;
   window.addEventListener("resize", () => {
-    annotations.forEach((a) => {
-      a.customCodePt = null;
-      a.customCardPt = null;
-      a.cardPos = null;
-      a.cardWidth = null;
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = null;
+      fitCardsToExport();
+      layoutCards();
+      raf2(drawOverlays);
     });
-    codeBoxSize = { w: null, h: null };
-    exportCustomSize = { w: null, h: null };
-    applyCodeBoxSize();
-    exportArea.style.width = "";
-    exportArea.style.height = "";
-    renderAll();
   });
 
   // ============================================================
@@ -1053,6 +1196,17 @@
     closeModal();
   });
 
+  // Short-lived on-screen notice (used for export errors)
+  const toastEl = document.getElementById("toast");
+  let toastTimer = null;
+  function showToast(msg, ms = 4000) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
+  }
+
   // Calculate the true bounding box of all export content
   function getExportBounds() {
     const eRect = exportArea.getBoundingClientRect();
@@ -1083,25 +1237,23 @@
     downloadBtn.disabled = true;
 
     try {
+      // Wait for web fonts so the capture doesn't fall back to system fonts
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+      // Read colors from the live CSS variables so export matches style.css
       const theme = htmlEl.getAttribute("data-theme");
-      const C =
-        theme === "dark"
-          ? {
-              bg: "#09090c",
-              border: "#26262e",
-              codeBg: "#0e0e13",
-              cardBg: "#141418",
-              ter: "#1b1b21",
-              text: "#eae8e4",
-            }
-          : {
-              bg: "#f4f1ec",
-              border: "#ddd9d2",
-              codeBg: "#f9f7f4",
-              cardBg: "#ffffff",
-              ter: "#edeae4",
-              text: "#1a1918",
-            };
+      const css = getComputedStyle(htmlEl);
+      const v = (name, fb) => css.getPropertyValue(name).trim() || fb;
+      const dark = theme === "dark";
+      const C = {
+        bg: dark ? v("--bg-deep", "#09090c") : v("--bg-primary", "#f4f1ec"),
+        border: v("--border", dark ? "#26262e" : "#ddd9d2"),
+        codeBg: v("--bg-code", dark ? "#0e0e13" : "#f9f7f4"),
+        cardBg: v("--card-bg", dark ? "#141418" : "#ffffff"),
+        // card-code bg: light uses bg-deep so it stays visible on a white card
+        ter: dark ? v("--bg-raised", "#1b1b21") : v("--bg-deep", "#edeae4"),
+        text: v("--text-1", dark ? "#eae8e4" : "#1a1918"),
+      };
 
       // Ensure overlays are current
       drawOverlays();
@@ -1208,6 +1360,7 @@
       modal.style.display = "flex";
     } catch (err) {
       console.error("PNG export failed:", err);
+      showToast("Export failed. Please try again.");
     } finally {
       downloadBtn.innerHTML = origBtnHtml;
       downloadBtn.disabled = false;
@@ -1227,23 +1380,145 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
-  window._del = deleteAnnotation;
-  window._color = setColor;
-  window._txtColor = setTextColor;
-  window._fontSize = setFontSize;
-  window._fmt = function (cmd, val) {
-    document.execCommand(cmd, false, val || null);
-  };
-  window._descHtml = function (id, el) {
+  // Trim surrounding blank lines and the indent common to all non-blank lines.
+  // Returns { code, src, offs }: src is the input with LF newlines,
+  // offs[i] is the index in src of code[i]
+  function normalizeCode(raw) {
+    const src = raw.replace(/\r\n?/g, "\n");
+    const all = src.split("\n");
+    let st = 0, i0 = 0, i1 = all.length;
+    while (i0 < i1 && !all[i0].trim()) st += all[i0++].length + 1;
+    while (i1 > i0 && !all[i1 - 1].trim()) i1--;
+    const lines = all.slice(i0, i1);
+    let pre = null;
+    for (const l of lines) {
+      if (!l.trim()) continue;
+      const ind = l.match(/^[ \t]*/)[0];
+      if (pre === null) pre = ind;
+      else {
+        let i = 0;
+        while (i < pre.length && pre[i] === ind[i]) i++;
+        pre = pre.slice(0, i);
+      }
+    }
+    pre = pre || "";
+    let code = "";
+    const offs = [];
+    lines.forEach((l, k) => {
+      const cut = l.startsWith(pre) ? pre.length : l.length;
+      if (k) { offs.push(st - 1); code += "\n"; }
+      for (let j = cut; j < l.length; j++) offs.push(st + j);
+      code += l.slice(cut);
+      st += l.length + 1;
+    });
+    offs.push(st - 1);
+    return { code, src, offs };
+  }
+  function diffRange(a, b) {
+    const max = Math.min(a.length, b.length);
+    let p = 0;
+    while (p < max && a[p] === b[p]) p++;
+    let s = 0;
+    while (s < max - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+    return { start: p, oldEnd: a.length - s, newEnd: b.length - s };
+  }
+
+  // === Persistence ===
+  const STATE_KEY = "code-annotator-state";
+  let saveTimer = null;
+  function saveState() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(writeState, 300);
+  }
+  function writeState() {
+    clearTimeout(saveTimer);
+    try {
+      const st = {
+        code: codeInput.value,
+        lang: langSelect.value,
+        annotations,
+        nextId,
+        topZ,
+      };
+      localStorage.setItem(STATE_KEY, JSON.stringify(st));
+    } catch (e) {}
+  }
+  function restoreState() {
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem(STATE_KEY)); } catch (e) {}
+    try {
+      if (!st || typeof st.code !== "string" || !st.code.trim()) throw 0;
+      if (!Array.isArray(st.annotations)) throw 0;
+      const n = normalizeCode(st.code), code = n.code;
+      const isInt = Number.isInteger;
+      const anns = st.annotations.filter(
+        (a) =>
+          a && typeof a === "object" && isInt(a.id) &&
+          isInt(a.startOffset) && isInt(a.endOffset) && a.startOffset >= 0 &&
+          a.endOffset > a.startOffset && a.endOffset <= code.length,
+      );
+      codeInput.value = st.code;
+      const langs = [...langSelect.options].map((o) => o.value);
+      if (langs.includes(st.lang)) langSelect.value = st.lang;
+      currentLang = langSelect.value;
+      currentCode = code;
+      currentSrc = n.src;
+      annotations = anns;
+      nextId = Math.max(Number(st.nextId) || 1, ...anns.map((a) => a.id + 1));
+      const zs = anns.map((a) => Number(a.zIndex) || 0);
+      topZ = Math.max(Number(st.topZ) || 1, ...zs);
+    } catch (e) {
+      codeInput.value = SAMPLE_CODE;
+      annotations = [];
+      currentCode = "";
+    }
+  }
+  window.addEventListener("pagehide", writeState);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") writeState();
+  });
+
+  function setDescription(id, el) {
     const ann = annotations.find((a) => a.id === id);
     if (ann) {
       ann.description = el.innerHTML;
+      saveState();
       renderAnnotationCards();
       layoutCards();
       raf2(drawOverlays);
     }
-  };
+  }
+
+  // === Sidebar event delegation ===
+  const itemId = (el) => Number(el.closest(".annotation-item").dataset.id);
+  annotationsContainer.addEventListener("mousedown", (e) => {
+    const btn = e.target.closest(".fmt-btn[data-fmt]");
+    if (!btn) return;
+    e.preventDefault();
+    document.execCommand(btn.dataset.fmt, false, null);
+  });
+  annotationsContainer.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-action]");
+    if (!el || !annotationsContainer.contains(el)) return;
+    const id = itemId(el), act = el.dataset.action;
+    if (act === "delete") deleteAnnotation(id);
+    else if (act === "color") setColor(id, el.dataset.color || null);
+    else if (act === "text-color") setTextColor(id, el.dataset.color || null);
+    else if (act === "font-size") setFontSize(id, Number(el.dataset.size));
+  });
+  annotationsContainer.addEventListener("input", (e) => {
+    const ed = e.target.closest(".editable-area");
+    if (ed) setDescription(Number(ed.dataset.annId), ed);
+  });
+  annotationsContainer.addEventListener("paste", (e) => {
+    const ed = e.target.closest(".editable-area");
+    if (!ed) return;
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+    document.execCommand("insertText", false, text);
+  });
 
   initTheme();
+  restoreState();
   applyCode();
 })();

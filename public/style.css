@@ -1121,17 +1121,105 @@ body {
   margin: 4px 0;
 }
 
-@media (max-width: 768px) {
+/* === Responsive === */
+/* Tablet and below: stack editor above the canvas */
+@media (max-width: 900px) {
   #app {
     flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
   }
   #editor-panel {
     width: 100%;
-    min-width: unset;
+    min-width: 0;
     max-height: 50vh;
+    max-height: 50dvh;
+    flex-shrink: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .annotations-list {
+    flex: none;
+    overflow: visible;
+  }
+  #preview-panel {
+    min-height: 0;
+  }
+  #code-input {
+    height: 140px;
   }
   .modal-container {
     width: 96vw;
     max-height: 95vh;
   }
+}
+/* Phone: tighter paddings, wrap the canvas toolbar */
+@media (max-width: 600px) {
+  .panel-header {
+    padding: 14px 16px 12px;
+  }
+  .input-section,
+  .annotations-list {
+    padding: 14px 16px;
+  }
+  #code-input {
+    height: 110px;
+  }
+  .preview-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px;
+  }
+  .toolbar-hint {
+    display: none;
+  }
+  .toolbar-right {
+    margin-left: auto;
+  }
+  .btn-export {
+    padding: 8px 12px;
+  }
+  .modal-header,
+  .modal-footer {
+    padding: 12px 16px;
+  }
+  .modal-body,
+  .howto-body {
+    padding: 12px !important;
+  }
+  .modal-footer .btn {
+    flex: 1;
+  }
+}
+
+/* === Toast === */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 10001;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  background: var(--bg-raised);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid #f85149;
+  border-radius: var(--radius-m);
+  box-shadow: 0 8px 30px var(--shadow-c);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 8px);
+  transition:
+    opacity 0.2s var(--ease),
+    transform 0.2s var(--ease),
+    visibility 0.2s;
+}
+.toast.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
 }

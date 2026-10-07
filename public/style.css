@@ -1223,3 +1223,42 @@ body {
   visibility: visible;
   transform: translate(-50%, 0);
 }
+
+/* === Touch === */
+.annotation-card,
+.card-resize-grip,
+.code-resize-grip,
+.export-handle {
+  touch-action: none;
+}
+.card-resize-grip,
+.code-resize-grip,
+.export-handle {
+  -webkit-user-select: none;
+  user-select: none;
+}
+@media (hover: none) {
+  .export-handle-r,
+  .export-handle-b {
+    opacity: 1;
+  }
+  .card-resize-grip::after,
+  .code-resize-grip::after,
+  .export-handle-br::after {
+    opacity: 0.8;
+  }
+}
+@media (pointer: coarse) {
+  .card-resize-grip,
+  .code-resize-grip,
+  .export-handle-br {
+    width: 32px;
+    height: 32px;
+  }
+  .export-handle-r {
+    width: 20px;
+  }
+  .export-handle-b {
+    height: 20px;
+  }
+}

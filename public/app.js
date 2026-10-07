@@ -581,9 +581,13 @@
       el.style.top = ann.cardPos.y + "px";
       if (ann.cardWidth) {
         el.style.width = ann.cardWidth + "px";
+        el.style.maxWidth = "";
       } else {
+        el.style.width = "";
         el.style.maxWidth = maxW + "px";
       }
+      el.style.height = ann.cardHeight ? ann.cardHeight + "px" : "";
+      el.style.overflow = ann.cardHeight ? "hidden" : "";
       el.style.zIndex = ann.zIndex || 1;
       nextY = ann.cardPos.y + el.offsetHeight + 12;
     }
@@ -792,19 +796,20 @@
   let codeResize = null; // { startW, startH, startX, startY }
   let exportResize = null; // { edge:'r'|'b'|'br', startW, startH, startX, startY }
   const HR = 12;
+  const HR_TOUCH = 20;
 
   // Custom sizes (null = auto)
   let codeBoxSize = { w: null, h: null };
   let exportCustomSize = { w: null, h: null };
 
-  function arrowHit(cx, cy) {
+  function arrowHit(cx, cy, r = HR) {
     const eR = exportArea.getBoundingClientRect();
     const mx = cx - eR.left,
       my = cy - eR.top;
     for (const a of drawnArrows) {
-      if (dist(mx, my, a.codePt.x, a.codePt.y) < HR)
+      if (dist(mx, my, a.codePt.x, a.codePt.y) < r)
         return { annId: a.annId, which: "code" };
-      if (dist(mx, my, a.cardPt.x, a.cardPt.y) < HR)
+      if (dist(mx, my, a.cardPt.x, a.cardPt.y) < r)
         return { annId: a.annId, which: "card" };
     }
     return null;
@@ -837,8 +842,13 @@
     // don't clear min-height here, updateExportHeight handles it
   }
 
-  // --- Unified mousemove ---
-  document.addEventListener("mousemove", (e) => {
+  const isDragging = () =>
+    !!(arrowDrag || cardDrag || cardResize || codeResize || exportResize);
+  const hitRadius = (e) => (e.pointerType === "mouse" ? HR : HR_TOUCH);
+
+  // --- Unified pointermove ---
+  document.addEventListener("pointermove", (e) => {
+    if (!e.isPrimary) return;
     // Arrow drag
     if (arrowDrag) {
       const ann = annotations.find((a) => a.id === arrowDrag.annId);
@@ -879,11 +889,12 @@
         cardResize.startW + (e.clientX - cardResize.startX),
       );
       el.style.width = ann.cardWidth + "px";
-      const newH = Math.max(
+      el.style.maxWidth = "";
+      ann.cardHeight = Math.max(
         60,
         cardResize.startH + (e.clientY - cardResize.startY),
       );
-      el.style.height = newH + "px";
+      el.style.height = ann.cardHeight + "px";
       el.style.overflow = "hidden";
       drawOverlays();
       updateExportHeight();
@@ -922,89 +933,95 @@
       return;
     }
 
-    // Hover: arrow endpoints
+    // Hover: arrow endpoints (mouse only)
+    if (e.pointerType !== "mouse") return;
     const hit = arrowHit(e.clientX, e.clientY);
     arrowsCanvas.style.pointerEvents = hit ? "auto" : "none";
     arrowsCanvas.style.cursor = hit ? "grab" : "";
   });
 
-  // --- Arrow mousedown ---
-  arrowsCanvas.addEventListener("mousedown", (e) => {
-    const hit = arrowHit(e.clientX, e.clientY);
-    if (hit) {
+  // --- Arrow pointerdown (capture: works without hover on touch) ---
+  exportArea.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!e.isPrimary) return;
+      const hit = arrowHit(e.clientX, e.clientY, hitRadius(e));
+      if (!hit) return;
       arrowDrag = hit;
       arrowsCanvas.style.cursor = "grabbing";
-      e.preventDefault();
       e.stopPropagation();
       drawOverlays();
-    }
-  });
-  arrowsCanvas.addEventListener("dblclick", (e) => {
-    const hit = arrowHit(e.clientX, e.clientY);
-    if (hit) {
+    },
+    true,
+  );
+  exportArea.addEventListener(
+    "dblclick",
+    (e) => {
+      const hit = arrowHit(e.clientX, e.clientY);
+      if (!hit) return;
       const ann = annotations.find((a) => a.id === hit.annId);
       if (ann) {
         if (hit.which === "code") ann.customCodePt = null;
         else ann.customCardPt = null;
         drawOverlays();
       }
-    }
+      e.stopPropagation();
+    },
+    true,
+  );
+  // Arrow ends may sit on scrollable code: block the touch scroll there
+  exportArea.addEventListener(
+    "touchstart",
+    (e) => {
+      if (arrowDrag) e.preventDefault();
+    },
+    { passive: false },
+  );
+  // Block text selection / focus change while dragging
+  document.addEventListener(
+    "mousedown",
+    (e) => {
+      if (isDragging()) e.preventDefault();
+    },
+    true,
+  );
+  document.addEventListener("selectstart", (e) => {
+    if (isDragging()) e.preventDefault();
   });
 
   // --- Export area resize handles ---
-  exportArea
-    .querySelector(".export-handle-r")
-    .addEventListener("mousedown", (e) => {
-      exportResize = {
-        edge: "r",
-        startW: exportArea.offsetWidth,
-        startH: exportArea.offsetHeight,
-        startX: e.clientX,
-        startY: e.clientY,
-      };
-      e.preventDefault();
-    });
-  exportArea
-    .querySelector(".export-handle-b")
-    .addEventListener("mousedown", (e) => {
-      exportResize = {
-        edge: "b",
-        startW: exportArea.offsetWidth,
-        startH: exportArea.offsetHeight,
-        startX: e.clientX,
-        startY: e.clientY,
-      };
-      e.preventDefault();
-    });
-  exportArea
-    .querySelector(".export-handle-br")
-    .addEventListener("mousedown", (e) => {
-      exportResize = {
-        edge: "br",
-        startW: exportArea.offsetWidth,
-        startH: exportArea.offsetHeight,
-        startX: e.clientX,
-        startY: e.clientY,
-      };
-      e.preventDefault();
-    });
+  ["r", "b", "br"].forEach((edge) => {
+    exportArea
+      .querySelector(`.export-handle-${edge}`)
+      .addEventListener("pointerdown", (e) => {
+        if (!e.isPrimary) return;
+        exportResize = {
+          edge,
+          startW: exportArea.offsetWidth,
+          startH: exportArea.offsetHeight,
+          startX: e.clientX,
+          startY: e.clientY,
+        };
+      });
+  });
 
   // --- Code box resize ---
   codeWrapper
     .querySelector(".code-resize-grip")
-    .addEventListener("mousedown", (e) => {
+    .addEventListener("pointerdown", (e) => {
+      if (!e.isPrimary) return;
       codeResize = {
         startW: codeWrapper.offsetWidth,
         startH: codeWrapper.offsetHeight,
         startX: e.clientX,
         startY: e.clientY,
       };
-      e.preventDefault();
       e.stopPropagation();
     });
 
   // --- Card drag & resize (delegation) ---
-  exportArea.addEventListener("mousedown", (e) => {
+  exportArea.addEventListener("pointerdown", (e) => {
+    if (!e.isPrimary) return;
     if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
     if (e.target.closest(".export-handle")) return; // handled above
 
@@ -1026,7 +1043,6 @@
         startX: e.clientX,
         startY: e.clientY,
       };
-      e.preventDefault();
       return;
     }
     cardDrag = {
@@ -1034,11 +1050,11 @@
       offX: e.clientX - eR.left - (ann.cardPos ? ann.cardPos.x : 0),
       offY: e.clientY - eR.top - (ann.cardPos ? ann.cardPos.y : 0),
     };
-    e.preventDefault();
   });
 
-  // --- Unified mouseup ---
-  document.addEventListener("mouseup", () => {
+  // --- Unified pointerup / pointercancel ---
+  function endDrag(e) {
+    if (!e.isPrimary) return;
     if (arrowDrag) {
       arrowDrag = null;
       arrowsCanvas.style.cursor = "";
@@ -1052,6 +1068,22 @@
       exportArea.classList.remove("resizing");
       exportResize = null;
     }
+  }
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
+
+  // Dblclick on card resize grip to reset to auto size
+  exportArea.addEventListener("dblclick", (e) => {
+    const grip = e.target.closest(".card-resize-grip");
+    if (!grip) return;
+    const ann = annotations.find(
+      (a) => a.id === parseInt(grip.closest(".annotation-card").dataset.id),
+    );
+    if (!ann) return;
+    ann.cardWidth = null;
+    ann.cardHeight = null;
+    layoutCards();
+    raf2(drawOverlays);
   });
 
   // Dblclick on code resize grip to reset
@@ -1079,19 +1111,29 @@
   previewScroll.addEventListener("scroll", () =>
     requestAnimationFrame(drawOverlays),
   );
+
+  // Keep manual layout on resize; only pull cards back inside the export area
+  function fitCardsToExport() {
+    const maxW = exportArea.clientWidth;
+    for (const ann of annotations) {
+      if (ann.cardWidth && ann.cardWidth > maxW - 16)
+        ann.cardWidth = Math.max(140, maxW - 16);
+      if (!ann.cardPos) continue;
+      const el = document.getElementById(`card-${ann.id}`);
+      const w = ann.cardWidth || (el ? el.offsetWidth : 0);
+      if (ann.cardPos.x + w > maxW)
+        ann.cardPos = { x: Math.max(0, maxW - w), y: ann.cardPos.y };
+    }
+  }
+  let resizeRaf = null;
   window.addEventListener("resize", () => {
-    annotations.forEach((a) => {
-      a.customCodePt = null;
-      a.customCardPt = null;
-      a.cardPos = null;
-      a.cardWidth = null;
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = null;
+      fitCardsToExport();
+      layoutCards();
+      raf2(drawOverlays);
     });
-    codeBoxSize = { w: null, h: null };
-    exportCustomSize = { w: null, h: null };
-    applyCodeBoxSize();
-    exportArea.style.width = "";
-    exportArea.style.height = "";
-    renderAll();
   });
 
   // ============================================================

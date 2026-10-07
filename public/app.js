@@ -104,82 +104,133 @@
   });
 
   // === Smart editor keys ===
+  // Replace [from, to) keeping native undo history; falls back to setRangeText.
+  function editRange(ta, from, to, text) {
+    if (from === to && !text) return;
+    ta.focus();
+    ta.setSelectionRange(from, to);
+    let ok = false;
+    try {
+      ok = document.execCommand(text ? "insertText" : "delete", false, text);
+    } catch (_) {}
+    if (!ok) {
+      ta.setRangeText(text, from, to, "end");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
+  // Lines touched by [s, e]; a last line reached only at column 0 is excluded.
+  function lineBlock(val, s, e) {
+    const from = val.lastIndexOf("\n", s - 1) + 1;
+    if (e > s && val[e - 1] === "\n") e--;
+    let to = val.indexOf("\n", e);
+    if (to < 0) to = val.length;
+    return { from, to, lines: val.substring(from, to).split("\n") };
+  }
+
+  // Map an offset through removed[i] chars dropped at the start of line i.
+  function mapPos(pos, from, lines, removed) {
+    let shift = 0,
+      ls = from;
+    for (let i = 0; i < lines.length && ls < pos; i++) {
+      shift += Math.min(removed[i], pos - ls);
+      ls += lines[i].length + 1;
+    }
+    return pos - shift;
+  }
+
+  function indentBlock(val, s, e) {
+    const b = lineBlock(val, s, e);
+    const text = b.lines.map((l) => "  " + l).join("\n");
+    return {
+      from: b.from,
+      to: b.to,
+      text,
+      selStart: s === b.from ? s : s + 2,
+      selEnd: e + 2 * b.lines.length,
+    };
+  }
+
+  function dedentBlock(val, s, e) {
+    const b = lineBlock(val, s, e);
+    const removed = b.lines.map((l) =>
+      l.startsWith("  ") ? 2 : l[0] === " " || l[0] === "\t" ? 1 : 0,
+    );
+    const text = b.lines.map((l, i) => l.substring(removed[i])).join("\n");
+    return {
+      from: b.from,
+      to: b.to,
+      text,
+      changed: removed.some((r) => r > 0),
+      selStart: mapPos(s, b.from, b.lines, removed),
+      selEnd: mapPos(e, b.from, b.lines, removed),
+    };
+  }
+
+  // Enter at [s, e]: keep indent, +2 after an opener; caret is relative to s.
+  function enterText(val, s, e) {
+    const lineStart = val.lastIndexOf("\n", s - 1) + 1;
+    const indent = val.substring(lineStart, s).match(/^[ \t]*/)[0];
+    const opened = s > 0 && "{([".includes(val[s - 1]);
+    let text = "\n" + indent + (opened ? "  " : "");
+    const caret = text.length;
+    if (opened && e < val.length && "})]".includes(val[e]))
+      text += "\n" + indent;
+    return { text, caret };
+  }
+
+  // Start of the indent to drop when a closer is typed on a blank line, or -1.
+  function closeDedent(val, s) {
+    const before = val.substring(val.lastIndexOf("\n", s - 1) + 1, s);
+    if (!/^[ \t]+$/.test(before)) return -1;
+    return before.endsWith("  ") ? s - 2 : before.endsWith("\t") ? s - 1 : -1;
+  }
+
   codeInput.addEventListener("keydown", function (e) {
+    // Leave IME composition (e.g. Japanese Enter) and modified keys alone
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const ta = this;
     const s = ta.selectionStart,
       end = ta.selectionEnd;
     const val = ta.value;
 
-    // Tab → insert 2 spaces
+    // Tab → insert 2 spaces, or indent every selected line
     if (e.key === "Tab" && !e.shiftKey) {
       e.preventDefault();
-      ta.value = val.substring(0, s) + "  " + val.substring(end);
-      ta.selectionStart = ta.selectionEnd = s + 2;
+      if (!val.substring(s, end).includes("\n"))
+        return editRange(ta, s, end, "  ");
+      const r = indentBlock(val, s, end);
+      editRange(ta, r.from, r.to, r.text);
+      ta.setSelectionRange(r.selStart, r.selEnd);
       return;
     }
 
-    // Shift+Tab → dedent current line
+    // Shift+Tab → dedent current / selected lines
     if (e.key === "Tab" && e.shiftKey) {
       e.preventDefault();
-      const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-      const line = val.substring(lineStart);
-      if (line.startsWith("  ")) {
-        ta.value = val.substring(0, lineStart) + line.substring(2);
-        ta.selectionStart = ta.selectionEnd = Math.max(lineStart, s - 2);
-      }
+      const r = dedentBlock(val, s, end);
+      if (!r.changed) return;
+      editRange(ta, r.from, r.to, r.text);
+      ta.setSelectionRange(r.selStart, r.selEnd);
       return;
     }
 
-    // Enter → auto-indent
+    // Enter → auto-indent (replaces selection)
     if (e.key === "Enter") {
       e.preventDefault();
-      const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-      const line = val.substring(lineStart, s);
-      const indent = line.match(/^(\s*)/)[1];
-      const charBefore = val[s - 1];
-      const charAfter = val[s];
-      const openers = "{([";
-      const closers = "})]";
-      let extra = "";
-
-      // Add indent after { ( [
-      if (openers.includes(charBefore)) {
-        extra = "  ";
-        // If closing bracket is right after cursor, put it on a new line
-        if (closers.includes(charAfter)) {
-          ta.value =
-            val.substring(0, s) +
-            "\n" +
-            indent +
-            extra +
-            "\n" +
-            indent +
-            val.substring(s);
-          ta.selectionStart = ta.selectionEnd =
-            s + 1 + indent.length + extra.length;
-          triggerLiveUpdate();
-          return;
-        }
-      }
-
-      ta.value =
-        val.substring(0, s) + "\n" + indent + extra + val.substring(end);
-      ta.selectionStart = ta.selectionEnd =
-        s + 1 + indent.length + extra.length;
-      triggerLiveUpdate();
+      const r = enterText(val, s, end);
+      editRange(ta, s, end, r.text);
+      ta.setSelectionRange(s + r.caret, s + r.caret);
       return;
     }
 
-    // Auto-dedent on } ) ]
-    if ("})".includes(e.key) || e.key === "]") {
-      const lineStart = val.lastIndexOf("\n", s - 1) + 1;
-      const before = val.substring(lineStart, s);
-      if (before.match(/^\s+$/) && before.length >= 2) {
-        ta.value =
-          val.substring(0, lineStart) + before.substring(2) + val.substring(s);
-        ta.selectionStart = ta.selectionEnd = s - 2;
-        // Let the character be typed naturally after dedent
-      }
+    // Auto-dedent on } ) ] (one edit, so a single undo step)
+    if ((e.key === "}" || e.key === ")" || e.key === "]") && s === end) {
+      const from = closeDedent(val, s);
+      if (from < 0) return;
+      e.preventDefault();
+      editRange(ta, from, s, e.key);
     }
   });
 

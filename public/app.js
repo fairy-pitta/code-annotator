@@ -193,20 +193,34 @@
   langSelect.addEventListener("change", triggerLiveUpdate);
 
   function liveUpdate() {
-    const newCode = codeInput.value.trim();
+    clearTimeout(liveTimer);
+    const newCode = normalizeCode(codeInput.value);
     if (!newCode) return;
     currentLang = langSelect.value;
     if (newCode !== currentCode) {
+      if (currentCode) shiftAnnotations(currentCode, newCode);
+      else annotations = [];
       currentCode = newCode;
-      // Clear annotations only if code changed (offsets become invalid)
-      if (annotations.length > 0) {
-        annotations = [];
-        nextId = 1;
-        topZ = 1;
-      }
     }
     renderAll();
     downloadBtn.disabled = false;
+  }
+
+  // Keep annotations outside the edited span; shift those after it, drop overlaps
+  function shiftAnnotations(oldCode, newCode) {
+    const d = diffRange(oldCode, newCode);
+    const delta = newCode.length - oldCode.length;
+    const lineOf = (s, i) => s.slice(0, i).split("\n").length;
+    const editLine = lineOf(oldCode, d.start);
+    annotations = annotations.filter((a) => {
+      if (a.endOffset <= d.start) return true;
+      if (a.startOffset < d.oldEnd) return false;
+      const oldLine = lineOf(oldCode, a.startOffset);
+      a.startOffset += delta;
+      a.endOffset += delta;
+      if (oldLine !== lineOf(newCode, a.startOffset) || oldLine === editLine) a.customCodePt = null;
+      return true;
+    });
   }
 
   const hintBadge = document.createElement("div");
@@ -214,18 +228,11 @@
   hintBadge.textContent = "Drag to select code, then annotate";
   codeWrapper.appendChild(hintBadge);
 
-  codeInput.value = `function greet(name) {\n  const message = \`Hello, \${name}!\`;\n  console.log(message);\n  return message;\n}\n\nconst result = greet("World");`;
+  const SAMPLE_CODE = `function greet(name) {\n  const message = \`Hello, \${name}!\`;\n  console.log(message);\n  return message;\n}\n\nconst result = greet("World");`;
 
   // === Apply Code ===
   function applyCode() {
-    currentCode = codeInput.value.trim();
-    if (!currentCode) return;
-    currentLang = langSelect.value;
-    annotations = [];
-    nextId = 1;
-    topZ = 1;
-    renderAll();
-    downloadBtn.disabled = false;
+    liveUpdate();
   }
 
   // === Render code (pure Prism) ===
@@ -415,6 +422,7 @@
       layoutCards();
       raf2(drawOverlays);
     });
+    saveState();
   }
 
   function raf2(fn) {
@@ -1227,6 +1235,70 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  // Trim surrounding blank lines and the indent common to all non-blank lines
+  function normalizeCode(raw) {
+    const lines = raw.replace(/\r\n?/g, "\n").split("\n");
+    while (lines.length && !lines[0].trim()) lines.shift();
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    let pre = null;
+    for (const l of lines) {
+      if (!l.trim()) continue;
+      const ind = l.match(/^[ \t]*/)[0];
+      if (pre === null) pre = ind;
+      else { let i = 0; while (i < pre.length && pre[i] === ind[i]) i++; pre = pre.slice(0, i); }
+    }
+    if (!pre) return lines.join("\n");
+    return lines.map((l) => (l.startsWith(pre) ? l.slice(pre.length) : l.trimStart())).join("\n");
+  }
+  function diffRange(a, b) {
+    const max = Math.min(a.length, b.length);
+    let p = 0;
+    while (p < max && a[p] === b[p]) p++;
+    let s = 0;
+    while (s < max - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+    return { start: p, oldEnd: a.length - s, newEnd: b.length - s };
+  }
+
+  // === Persistence ===
+  const STATE_KEY = "code-annotator-state";
+  let saveTimer = null;
+  function saveState() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(writeState, 300);
+  }
+  function writeState() {
+    clearTimeout(saveTimer);
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify({ code: codeInput.value, lang: langSelect.value, annotations, nextId, topZ }));
+    } catch (e) {}
+  }
+  function restoreState() {
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem(STATE_KEY)); } catch (e) {}
+    try {
+      if (!st || typeof st.code !== "string" || !st.code.trim() || !Array.isArray(st.annotations)) throw 0;
+      const code = normalizeCode(st.code);
+      const anns = st.annotations.filter((a) => a && typeof a === "object" && Number.isInteger(a.id) &&
+        Number.isInteger(a.startOffset) && Number.isInteger(a.endOffset) &&
+        a.startOffset >= 0 && a.endOffset > a.startOffset && a.endOffset <= code.length);
+      codeInput.value = st.code;
+      if ([...langSelect.options].some((o) => o.value === st.lang)) langSelect.value = st.lang;
+      currentLang = langSelect.value;
+      currentCode = code;
+      annotations = anns;
+      nextId = Math.max(Number(st.nextId) || 1, ...anns.map((a) => a.id + 1));
+      topZ = Math.max(Number(st.topZ) || 1, ...anns.map((a) => Number(a.zIndex) || 0));
+    } catch (e) {
+      codeInput.value = SAMPLE_CODE;
+      annotations = [];
+      currentCode = "";
+    }
+  }
+  window.addEventListener("pagehide", writeState);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") writeState();
+  });
+
   window._del = deleteAnnotation;
   window._color = setColor;
   window._txtColor = setTextColor;
@@ -1238,6 +1310,7 @@
     const ann = annotations.find((a) => a.id === id);
     if (ann) {
       ann.description = el.innerHTML;
+      saveState();
       renderAnnotationCards();
       layoutCards();
       raf2(drawOverlays);
@@ -1245,5 +1318,6 @@
   };
 
   initTheme();
+  restoreState();
   applyCode();
 })();

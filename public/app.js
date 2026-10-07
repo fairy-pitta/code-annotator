@@ -260,6 +260,7 @@
     currentSrc = n.src;
     renderAll();
     downloadBtn.disabled = false;
+    docCopyBtn.disabled = false;
   }
 
   // Diff the raw input texts (so indent changes don't drop annotations)
@@ -500,6 +501,7 @@
     renderAnnotationCards();
     const countEl = document.getElementById("ann-count");
     if (countEl) countEl.textContent = annotations.length;
+    updateWordCounts();
     requestAnimationFrame(() => {
       layoutCards();
       raf2(drawOverlays);
@@ -520,12 +522,14 @@
     }
     annotationsContainer.innerHTML = annotations
       .map(
-        (ann) => `
+        (ann, i) => `
       <div class="annotation-item" data-id="${ann.id}" style="border-left-color:${escAttr(ann.color || "var(--text-1)")};">
         <button class="delete-btn" data-action="delete" title="Delete">&times;</button>
         <div class="selected-text-preview">
+          <span class="ann-num">${i + 1}</span>
           <span class="annotation-color-dot" style="background:${escAttr(ann.color || "var(--text-1)")};"></span>
           <span>${esc(trunc(ann.text, 40))}</span>
+          <span class="ann-words" data-words-for="${ann.id}">${wordLabel(countWords(ann.description))}</span>
         </div>
         <div class="ctrl-row">
           <span class="ctrl-label">Highlight</span>
@@ -650,6 +654,18 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cW, cH);
 
+    drawnArrows = paintAnnotations(ctx, (ann) => {
+      const el = document.getElementById(`card-${ann.id}`);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { l: r.left - eRect.left, t: r.top - eRect.top, w: r.width, h: r.height };
+    }, true);
+    if (arrowDrag) drawHandles(ctx);
+  }
+
+  // Paint highlight boxes + arrows; cardRect(ann) gives the arrow's source rect
+  function paintAnnotations(ctx, cardRect, useCustomCard) {
+    const arrows = [];
     const pad = 5;
     const defColor = themeTextColor();
     for (const ann of annotations) {
@@ -660,8 +676,8 @@
         ann.endOffset,
       );
       const box = getUnionRect(range, exportArea);
-      const cardEl = document.getElementById(`card-${ann.id}`);
-      if (!box || !cardEl) continue;
+      const cr = cardRect(ann);
+      if (!box || !cr) continue;
 
       // Highlight box
       const rx = box.x - pad,
@@ -685,11 +701,10 @@
       // Arrow endpoints — snap to nearest edge midpoints
       const codeCx = box.x + box.w / 2,
         codeCy = box.y + box.h / 2;
-      const cardR = cardEl.getBoundingClientRect();
-      const cl = cardR.left - eRect.left,
-        ct = cardR.top - eRect.top;
-      const cw = cardR.width,
-        ch = cardR.height;
+      const cl = cr.l,
+        ct = cr.t;
+      const cw = cr.w,
+        ch = cr.h;
       const cardCx = cl + cw / 2,
         cardCy = ct + ch / 2;
 
@@ -724,8 +739,8 @@
       );
 
       const codePt = ann.customCodePt || { x: defCode.x, y: defCode.y };
-      const cardPt = ann.customCardPt || { x: defCard.x, y: defCard.y };
-      drawnArrows.push({ annId: ann.id, codePt, cardPt, color });
+      const cardPt = (useCustomCard && ann.customCardPt) || { x: defCard.x, y: defCard.y };
+      arrows.push({ annId: ann.id, codePt, cardPt, color });
 
       // Bezier from card to code
       const x1 = cardPt.x,
@@ -763,7 +778,7 @@
       const angle = Math.atan2(ty, tx);
       drawArrowhead(ctx, x2, y2, angle, 9, color);
     }
-    if (arrowDrag) drawHandles(ctx);
+    return arrows;
   }
 
   function drawArrowhead(ctx, x, y, angle, size, color) {
@@ -1367,6 +1382,233 @@
     }
   }
 
+  // ============================================================
+  // Copy for Docs — image (code + arrows + number badges) and the
+  // annotations as a real numbered list, so Word / Google Docs count them
+  // ============================================================
+  const docCopyBtn = document.getElementById("doc-copy-btn");
+  const docModal = document.getElementById("doc-modal");
+  const docPreview = document.getElementById("doc-preview");
+  const DOC_MAX_W = 600; // fits a Word / Docs page body (6.5in ≈ 624px)
+  const BADGE_R = 13;
+  let docData = null;
+
+  docCopyBtn.addEventListener("click", openDocModal);
+  document.getElementById("doc-close-btn").addEventListener("click", closeDocModal);
+  docModal.addEventListener("click", (e) => {
+    if (e.target === docModal) closeDocModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && docModal.style.display !== "none") closeDocModal();
+  });
+  document.getElementById("doc-copy-all-btn").addEventListener("click", () =>
+    copyDoc({ html: true, text: true, image: true }, "Copied image + text"),
+  );
+  document.getElementById("doc-copy-text-btn").addEventListener("click", () =>
+    copyDoc({ html: true, text: true, image: false }, "Copied text"),
+  );
+  document.getElementById("doc-copy-img-btn").addEventListener("click", () =>
+    copyDoc({ image: true }, "Copied image"),
+  );
+
+  function closeDocModal() {
+    docModal.style.display = "none";
+    docData = null;
+  }
+
+  async function openDocModal() {
+    if (!currentCode) return;
+    if (!annotations.length) {
+      showToast("Add at least one annotation first.");
+      return;
+    }
+    const origBtnHtml = docCopyBtn.innerHTML;
+    docCopyBtn.textContent = "Generating...";
+    docCopyBtn.disabled = true;
+    try {
+      const img = await renderDocImage();
+      const items = annotations.map((a) => cleanDescHtml(a.description));
+      const dispW = Math.min(DOC_MAX_W, img.w);
+      const dispH = Math.round((img.h * dispW) / img.w);
+      const list = `<ol>${items.map((h) => `<li>${h || "&nbsp;"}</li>`).join("")}</ol>`;
+      const html = `<p><img src="${img.dataUrl}" width="${dispW}" height="${dispH}" alt="Annotated code"></p>${list}`;
+      const text = annotations
+        .map((a, i) => `${i + 1}. ${htmlToText(a.description).replace(/\s+/g, " ").trim()}`)
+        .join("\n");
+      docData = { blob: img.blob, html, listHtml: list, text };
+      docPreview.innerHTML = html;
+      document.getElementById("doc-words").textContent = annotations.reduce(
+        (n, a) => n + countWords(a.description),
+        0,
+      );
+      docModal.style.display = "flex";
+    } catch (err) {
+      console.error("Copy for Docs failed:", err);
+      showToast("Could not generate the image. Please try again.");
+    } finally {
+      docCopyBtn.innerHTML = origBtnHtml;
+      docCopyBtn.disabled = false;
+    }
+  }
+
+  async function copyDoc(what, okMsg) {
+    if (!docData) return;
+    const parts = {};
+    if (what.html)
+      parts["text/html"] = new Blob([what.image ? docData.html : docData.listHtml], { type: "text/html" });
+    if (what.text) parts["text/plain"] = new Blob([docData.text], { type: "text/plain" });
+    if (what.image && !what.html) parts["image/png"] = docData.blob;
+    try {
+      if (!navigator.clipboard || !window.ClipboardItem) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.write([new ClipboardItem(parts)]);
+      showToast(`${okMsg}. Paste it into your document.`, 3000);
+    } catch (err) {
+      console.error("Clipboard write failed:", err);
+      if (what.html && copyHtmlFallback(what.image ? docData.html : docData.listHtml, docData.text))
+        showToast(`${okMsg}. Paste it into your document.`, 3000);
+      else showToast("Copy failed. Your browser blocked clipboard access.");
+    }
+  }
+
+  // Older browsers: write text/html through a copy event
+  function copyHtmlFallback(html, text) {
+    const onCopy = (e) => {
+      e.clipboardData.setData("text/html", html);
+      e.clipboardData.setData("text/plain", text);
+      e.preventDefault();
+    };
+    document.addEventListener("copy", onCopy);
+    try {
+      return document.execCommand("copy");
+    } catch (e) {
+      return false;
+    } finally {
+      document.removeEventListener("copy", onCopy);
+    }
+  }
+
+  // Keep only formatting that survives in Word / Docs: bold, italic,
+  // underline, strikethrough, line breaks and lists
+  function cleanDescHtml(html) {
+    const root = new DOMParser().parseFromString(`<div>${html || ""}</div>`, "text/html").body.firstChild;
+    const wrap = { b: "b", strong: "b", i: "i", em: "i", u: "u", s: "s", strike: "s", ul: "ul", ol: "ol", li: "li" };
+    const walk = (node) => {
+      let out = "";
+      for (const n of node.childNodes) {
+        if (n.nodeType === 3) {
+          // Non-breaking spaces would make Word count two words as one
+          out += esc(n.textContent.replace(/\u00a0/g, " "));
+          continue;
+        }
+        if (n.nodeType !== 1) continue;
+        const tag = n.tagName.toLowerCase();
+        const inner = walk(n);
+        if (tag === "br") out += "<br>";
+        else if (wrap[tag]) out += `<${wrap[tag]}>${inner}</${wrap[tag]}>`;
+        else if (tag === "div" || tag === "p") out += (out && !out.endsWith("<br>") ? "<br>" : "") + inner;
+        else out += inner;
+      }
+      return out;
+    };
+    return walk(root).replace(/(<br>)+$/, "").trim();
+  }
+
+  // Badge rect for each annotation: on its card, at the point nearest the code
+  function badgeRects() {
+    const eRect = exportArea.getBoundingClientRect();
+    const w = codeWrapper.getBoundingClientRect();
+    const codeCx = w.left + w.width / 2,
+      codeCy = w.top + w.height / 2;
+    const clamp = (v, a, b) => Math.max(a + BADGE_R, Math.min(b - BADGE_R, v));
+    const rects = new Map();
+    annotations.forEach((ann, i) => {
+      const el = document.getElementById(`card-${ann.id}`);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const cx = clamp(codeCx, r.left, r.right) - eRect.left,
+        cy = clamp(codeCy, r.top, r.bottom) - eRect.top;
+      rects.set(ann.id, { l: cx - BADGE_R, t: cy - BADGE_R, w: BADGE_R * 2, h: BADGE_R * 2, n: i + 1 });
+    });
+    return rects;
+  }
+
+  async function renderDocImage() {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    drawOverlays();
+    await sleep(50);
+
+    const css = getComputedStyle(htmlEl);
+    const codeBg = css.getPropertyValue("--bg-code").trim() || "#f9f7f4";
+    const defColor = themeTextColor();
+    const eRect = exportArea.getBoundingClientRect();
+    const wRect = codeWrapper.getBoundingClientRect();
+    const badges = badgeRects();
+
+    // Crop to the code block plus badges (cards are left out)
+    let x0 = wRect.left - eRect.left, y0 = wRect.top - eRect.top;
+    let x1 = wRect.right - eRect.left, y1 = wRect.bottom - eRect.top;
+    for (const b of badges.values()) {
+      x0 = Math.min(x0, b.l); y0 = Math.min(y0, b.t);
+      x1 = Math.max(x1, b.l + b.w); y1 = Math.max(y1, b.t + b.h);
+    }
+    const m = 16;
+    x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m);
+    x1 += m; y1 += m;
+
+    const scale = 2;
+    const full = await html2canvas(exportArea, {
+      backgroundColor: codeBg,
+      scale,
+      useCORS: true,
+      logging: false,
+      width: Math.max(exportArea.scrollWidth, x1),
+      height: Math.max(exportArea.scrollHeight, y1),
+      onclone: (doc) => {
+        const ce = doc.getElementById("export-area");
+        if (!ce) return;
+        ce.style.background = codeBg;
+        ce.style.border = "none";
+        ce.style.overflow = "visible";
+        doc
+          .querySelectorAll(".annotation-card, .selection-hint, .card-resize-grip, .code-resize-grip, .export-handle")
+          .forEach((e) => e.remove());
+        // Redraw highlights + arrows towards the badges, then the badges
+        const cv = doc.getElementById("arrows-canvas");
+        if (!cv) return;
+        const ctx = cv.getContext("2d");
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        paintAnnotations(ctx, (ann) => badges.get(ann.id) || null, false);
+        for (const ann of annotations) {
+          const b = badges.get(ann.id);
+          if (!b) continue;
+          ctx.save();
+          ctx.fillStyle = ann.color || defColor;
+          ctx.beginPath();
+          ctx.arc(b.l + BADGE_R, b.t + BADGE_R, BADGE_R, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = codeBg;
+          ctx.font = "700 13px system-ui, -apple-system, 'Segoe UI', sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(String(b.n), b.l + BADGE_R, b.t + BADGE_R + 0.5);
+          ctx.restore();
+        }
+      },
+    });
+
+    const out = document.createElement("canvas");
+    out.width = Math.round((x1 - x0) * scale);
+    out.height = Math.round((y1 - y0) * scale);
+    const octx = out.getContext("2d");
+    octx.fillStyle = codeBg;
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.drawImage(full, x0 * scale, y0 * scale, out.width, out.height, 0, 0, out.width, out.height);
+    const blob = await new Promise((res) => out.toBlob(res, "image/png"));
+    return { blob, dataUrl: out.toDataURL("image/png"), w: x1 - x0, h: y1 - y0 };
+  }
+
   // === Helpers ===
   function esc(s) {
     const d = document.createElement("div");
@@ -1421,6 +1663,44 @@
     let s = 0;
     while (s < max - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
     return { start: p, oldEnd: a.length - s, newEnd: b.length - s };
+  }
+
+  // === Word count (mirrors Word / Google Docs: whitespace-separated tokens,
+  // each CJK character counts as one word) ===
+  function htmlToText(html) {
+    const withBreaks = String(html || "").replace(/<(br|\/div|\/p|\/li)\b[^>]*>/gi, "\n$&");
+    return new DOMParser().parseFromString(withBreaks, "text/html").body.textContent || "";
+  }
+  function countWords(html) {
+    const t = htmlToText(html).replace(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/g, " x ");
+    return t.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  }
+  function wordLabel(n) {
+    return n === 1 ? "1 word" : `${n} words`;
+  }
+  const wordLimitInput = document.getElementById("word-limit");
+  const WORD_LIMIT_KEY = "code-annotator-word-limit";
+  try {
+    wordLimitInput.value = localStorage.getItem(WORD_LIMIT_KEY) || "";
+  } catch (e) {}
+  wordLimitInput.addEventListener("input", () => {
+    try {
+      localStorage.setItem(WORD_LIMIT_KEY, wordLimitInput.value);
+    } catch (e) {}
+    updateWordCounts();
+  });
+  function updateWordCounts() {
+    let total = 0;
+    for (const ann of annotations) {
+      const n = countWords(ann.description);
+      total += n;
+      const el = annotationsContainer.querySelector(`[data-words-for="${ann.id}"]`);
+      if (el) el.textContent = wordLabel(n);
+    }
+    document.getElementById("word-total").textContent = total;
+    const limit = parseInt(wordLimitInput.value, 10);
+    document.getElementById("word-budget").classList.toggle("over", limit > 0 && total > limit);
+    return total;
   }
 
   // === Persistence ===
@@ -1482,6 +1762,7 @@
     const ann = annotations.find((a) => a.id === id);
     if (ann) {
       ann.description = el.innerHTML;
+      updateWordCounts();
       saveState();
       renderAnnotationCards();
       layoutCards();

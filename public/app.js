@@ -1053,6 +1053,17 @@
     closeModal();
   });
 
+  // Short-lived on-screen notice (used for export errors)
+  const toastEl = document.getElementById("toast");
+  let toastTimer = null;
+  function showToast(msg, ms = 4000) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("show"), ms);
+  }
+
   // Calculate the true bounding box of all export content
   function getExportBounds() {
     const eRect = exportArea.getBoundingClientRect();
@@ -1083,25 +1094,23 @@
     downloadBtn.disabled = true;
 
     try {
+      // Wait for web fonts so the capture doesn't fall back to system fonts
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+      // Read colors from the live CSS variables so export matches style.css
       const theme = htmlEl.getAttribute("data-theme");
-      const C =
-        theme === "dark"
-          ? {
-              bg: "#09090c",
-              border: "#26262e",
-              codeBg: "#0e0e13",
-              cardBg: "#141418",
-              ter: "#1b1b21",
-              text: "#eae8e4",
-            }
-          : {
-              bg: "#f4f1ec",
-              border: "#ddd9d2",
-              codeBg: "#f9f7f4",
-              cardBg: "#ffffff",
-              ter: "#edeae4",
-              text: "#1a1918",
-            };
+      const css = getComputedStyle(htmlEl);
+      const v = (name, fb) => css.getPropertyValue(name).trim() || fb;
+      const dark = theme === "dark";
+      const C = {
+        bg: dark ? v("--bg-deep", "#09090c") : v("--bg-primary", "#f4f1ec"),
+        border: v("--border", dark ? "#26262e" : "#ddd9d2"),
+        codeBg: v("--bg-code", dark ? "#0e0e13" : "#f9f7f4"),
+        cardBg: v("--card-bg", dark ? "#141418" : "#ffffff"),
+        // card-code bg: light uses bg-deep so it stays visible on a white card
+        ter: dark ? v("--bg-raised", "#1b1b21") : v("--bg-deep", "#edeae4"),
+        text: v("--text-1", dark ? "#eae8e4" : "#1a1918"),
+      };
 
       // Ensure overlays are current
       drawOverlays();
@@ -1208,6 +1217,7 @@
       modal.style.display = "flex";
     } catch (err) {
       console.error("PNG export failed:", err);
+      showToast("Export failed. Please try again.");
     } finally {
       downloadBtn.innerHTML = origBtnHtml;
       downloadBtn.disabled = false;

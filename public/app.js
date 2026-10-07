@@ -192,33 +192,50 @@
   codeInput.addEventListener("input", triggerLiveUpdate);
   langSelect.addEventListener("change", triggerLiveUpdate);
 
+  let currentSrc = "";
   function liveUpdate() {
     clearTimeout(liveTimer);
-    const newCode = normalizeCode(codeInput.value);
-    if (!newCode) return;
+    const n = normalizeCode(codeInput.value);
+    if (!n.code) return;
     currentLang = langSelect.value;
-    if (newCode !== currentCode) {
-      if (currentCode) shiftAnnotations(currentCode, newCode);
+    if (n.code !== currentCode) {
+      if (currentCode) shiftAnnotations(normalizeCode(currentSrc), n);
       else annotations = [];
-      currentCode = newCode;
+      currentCode = n.code;
     }
+    currentSrc = n.src;
     renderAll();
     downloadBtn.disabled = false;
   }
 
-  // Keep annotations outside the edited span; shift those after it, drop overlaps
-  function shiftAnnotations(oldCode, newCode) {
-    const d = diffRange(oldCode, newCode);
-    const delta = newCode.length - oldCode.length;
+  // Diff the raw input texts (so indent changes don't drop annotations)
+  // and map offsets through raw positions
+  function shiftAnnotations(o, n) {
+    const d = diffRange(o.src, n.src);
+    const delta = n.src.length - o.src.length;
+    const inv = new Array(n.src.length + 1).fill(-1);
+    n.offs.forEach((r, i) => { inv[r] = i; });
     const lineOf = (s, i) => s.slice(0, i).split("\n").length;
-    const editLine = lineOf(oldCode, d.start);
+    const colOf = (s, i) => i - s.lastIndexOf("\n", i - 1) - 1;
     annotations = annotations.filter((a) => {
-      if (a.endOffset <= d.start) return true;
-      if (a.startOffset < d.oldEnd) return false;
-      const oldLine = lineOf(oldCode, a.startOffset);
-      a.startOffset += delta;
-      a.endOffset += delta;
-      if (oldLine !== lineOf(newCode, a.startOffset) || oldLine === editLine) a.customCodePt = null;
+      let rs = o.offs[a.startOffset], re = o.offs[a.endOffset - 1] + 1;
+      if (rs === undefined || isNaN(re)) return false;
+      if (re > d.start && rs < d.oldEnd) return false;
+      if (rs >= d.oldEnd) { rs += delta; re += delta; }
+      while (rs < re && inv[rs] < 0) rs++;
+      while (re > rs && inv[re - 1] < 0) re--;
+      if (rs >= re) return false;
+      const s = inv[rs], e = inv[re - 1] + 1;
+      // Arrow tip was placed for the old line/column; reset it when either moves
+      const os = a.startOffset;
+      if (
+        lineOf(o.code, os) !== lineOf(n.code, s) ||
+        colOf(o.code, os) !== colOf(n.code, s)
+      )
+        a.customCodePt = null;
+      a.startOffset = s;
+      a.endOffset = e;
+      a.text = n.code.slice(s, e);
       return true;
     });
   }
@@ -1235,20 +1252,39 @@
     return new Promise((r) => setTimeout(r, ms));
   }
 
-  // Trim surrounding blank lines and the indent common to all non-blank lines
+  // Trim surrounding blank lines and the indent common to all non-blank lines.
+  // Returns { code, src, offs }: src is the input with LF newlines,
+  // offs[i] is the index in src of code[i]
   function normalizeCode(raw) {
-    const lines = raw.replace(/\r\n?/g, "\n").split("\n");
-    while (lines.length && !lines[0].trim()) lines.shift();
-    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    const src = raw.replace(/\r\n?/g, "\n");
+    const all = src.split("\n");
+    let st = 0, i0 = 0, i1 = all.length;
+    while (i0 < i1 && !all[i0].trim()) st += all[i0++].length + 1;
+    while (i1 > i0 && !all[i1 - 1].trim()) i1--;
+    const lines = all.slice(i0, i1);
     let pre = null;
     for (const l of lines) {
       if (!l.trim()) continue;
       const ind = l.match(/^[ \t]*/)[0];
       if (pre === null) pre = ind;
-      else { let i = 0; while (i < pre.length && pre[i] === ind[i]) i++; pre = pre.slice(0, i); }
+      else {
+        let i = 0;
+        while (i < pre.length && pre[i] === ind[i]) i++;
+        pre = pre.slice(0, i);
+      }
     }
-    if (!pre) return lines.join("\n");
-    return lines.map((l) => (l.startsWith(pre) ? l.slice(pre.length) : l.trimStart())).join("\n");
+    pre = pre || "";
+    let code = "";
+    const offs = [];
+    lines.forEach((l, k) => {
+      const cut = l.startsWith(pre) ? pre.length : l.length;
+      if (k) { offs.push(st - 1); code += "\n"; }
+      for (let j = cut; j < l.length; j++) offs.push(st + j);
+      code += l.slice(cut);
+      st += l.length + 1;
+    });
+    offs.push(st - 1);
+    return { code, src, offs };
   }
   function diffRange(a, b) {
     const max = Math.min(a.length, b.length);
@@ -1269,25 +1305,40 @@
   function writeState() {
     clearTimeout(saveTimer);
     try {
-      localStorage.setItem(STATE_KEY, JSON.stringify({ code: codeInput.value, lang: langSelect.value, annotations, nextId, topZ }));
+      const st = {
+        code: codeInput.value,
+        lang: langSelect.value,
+        annotations,
+        nextId,
+        topZ,
+      };
+      localStorage.setItem(STATE_KEY, JSON.stringify(st));
     } catch (e) {}
   }
   function restoreState() {
     let st = null;
     try { st = JSON.parse(localStorage.getItem(STATE_KEY)); } catch (e) {}
     try {
-      if (!st || typeof st.code !== "string" || !st.code.trim() || !Array.isArray(st.annotations)) throw 0;
-      const code = normalizeCode(st.code);
-      const anns = st.annotations.filter((a) => a && typeof a === "object" && Number.isInteger(a.id) &&
-        Number.isInteger(a.startOffset) && Number.isInteger(a.endOffset) &&
-        a.startOffset >= 0 && a.endOffset > a.startOffset && a.endOffset <= code.length);
+      if (!st || typeof st.code !== "string" || !st.code.trim()) throw 0;
+      if (!Array.isArray(st.annotations)) throw 0;
+      const n = normalizeCode(st.code), code = n.code;
+      const isInt = Number.isInteger;
+      const anns = st.annotations.filter(
+        (a) =>
+          a && typeof a === "object" && isInt(a.id) &&
+          isInt(a.startOffset) && isInt(a.endOffset) && a.startOffset >= 0 &&
+          a.endOffset > a.startOffset && a.endOffset <= code.length,
+      );
       codeInput.value = st.code;
-      if ([...langSelect.options].some((o) => o.value === st.lang)) langSelect.value = st.lang;
+      const langs = [...langSelect.options].map((o) => o.value);
+      if (langs.includes(st.lang)) langSelect.value = st.lang;
       currentLang = langSelect.value;
       currentCode = code;
+      currentSrc = n.src;
       annotations = anns;
       nextId = Math.max(Number(st.nextId) || 1, ...anns.map((a) => a.id + 1));
-      topZ = Math.max(Number(st.topZ) || 1, ...anns.map((a) => Number(a.zIndex) || 0));
+      const zs = anns.map((a) => Number(a.zIndex) || 0);
+      topZ = Math.max(Number(st.topZ) || 1, ...zs);
     } catch (e) {
       codeInput.value = SAMPLE_CODE;
       annotations = [];

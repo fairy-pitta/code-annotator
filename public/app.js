@@ -569,7 +569,7 @@
     return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
   function themeTextColor() {
-    return getComputedStyle(htmlEl).getPropertyValue("--text-1").trim() || "#1a1a1a";
+    return getComputedStyle(htmlEl).getPropertyValue("--text-1").trim() || "#1d1d1f";
   }
 
   // === Cards (absolute positioned) ===
@@ -1261,13 +1261,13 @@
       const v = (name, fb) => css.getPropertyValue(name).trim() || fb;
       const dark = theme === "dark";
       const C = {
-        bg: dark ? v("--bg-deep", "#09090c") : v("--bg-primary", "#f4f1ec"),
-        border: v("--border", dark ? "#26262e" : "#ddd9d2"),
-        codeBg: v("--bg-code", dark ? "#0e0e13" : "#f9f7f4"),
-        cardBg: v("--card-bg", dark ? "#141418" : "#ffffff"),
-        // card-code bg: light uses bg-deep so it stays visible on a white card
-        ter: dark ? v("--bg-raised", "#1b1b21") : v("--bg-deep", "#edeae4"),
-        text: v("--text-1", dark ? "#eae8e4" : "#1a1918"),
+        bg: dark ? v("--bg-deep", "#111113") : v("--bg-primary", "#f5f5f7"),
+        border: v("--border", dark ? "#2e2e32" : "#dcdce0"),
+        codeBg: v("--bg-code", dark ? "#2c2c2e" : "#ececf0"),
+        cardBg: v("--card-bg", dark ? "#1c1c1e" : "#ffffff"),
+        // card-code bg: same tint the live card uses
+        ter: v("--inset", dark ? "#2c2c2e" : "#ececf0"),
+        text: v("--text-1", dark ? "#f5f5f7" : "#1d1d1f"),
       };
 
       // Ensure overlays are current
@@ -1321,7 +1321,7 @@
             img.style.width = codeW + "px";
             img.style.height = codeH + "px";
             img.style.display = "block";
-            img.style.borderRadius = "10px";
+            img.style.borderRadius = "12px";
             cloneWrapper.parentNode.insertBefore(img, cloneWrapper);
             cloneWrapper.style.display = "none";
           }
@@ -1337,7 +1337,7 @@
           doc.querySelectorAll(".annotation-card").forEach((c) => {
             c.style.background = C.cardBg;
             c.style.border = `1px solid ${C.border}`;
-            c.style.borderRadius = "10px";
+            c.style.borderRadius = "16px";
             c.style.overflow = "hidden";
             c.style.backdropFilter = "none";
             c.style.webkitBackdropFilter = "none";
@@ -1353,10 +1353,10 @@
           doc.querySelectorAll(".card-code").forEach((c) => {
             c.style.background = C.ter;
             c.style.fontFamily =
-              "'JetBrains Mono','SF Mono',Consolas,monospace";
+              "'Geist Mono Variable','Geist Mono',ui-monospace,SFMono-Regular,Menlo,monospace";
             c.style.fontSize = "12px";
             c.style.padding = "10px 14px";
-            c.style.borderRadius = "6px";
+            c.style.borderRadius = "10px";
             c.style.whiteSpace = "pre-wrap";
           });
           doc.querySelectorAll(".card-text").forEach((t) => {
@@ -1364,7 +1364,7 @@
             if (!t.style.fontSize) t.style.fontSize = "14px";
             t.style.lineHeight = "1.65";
             if (codeVisible) t.style.marginTop = "10px";
-            t.style.fontFamily = "'Bricolage Grotesque',system-ui,sans-serif";
+            t.style.fontFamily = "'Geist Variable','Geist',-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif";
           });
         },
       });
@@ -1538,7 +1538,7 @@
     await sleep(50);
 
     const css = getComputedStyle(htmlEl);
-    const codeBg = css.getPropertyValue("--bg-code").trim() || "#f9f7f4";
+    const codeBg = css.getPropertyValue("--bg-code").trim() || "#ececf0";
     const defColor = themeTextColor();
     const eRect = exportArea.getBoundingClientRect();
     const wRect = codeWrapper.getBoundingClientRect();
@@ -1589,7 +1589,7 @@
           ctx.arc(b.l + BADGE_R, b.t + BADGE_R, BADGE_R, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = codeBg;
-          ctx.font = "700 13px system-ui, -apple-system, 'Segoe UI', sans-serif";
+          ctx.font = "700 13px 'Geist Variable', -apple-system, 'Segoe UI', sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillText(String(b.n), b.l + BADGE_R, b.t + BADGE_R + 0.5);

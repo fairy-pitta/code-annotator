@@ -5,12 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Code Annotator</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="preload" href="fonts/geist/files/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="style.css" />
     <link
       rel="stylesheet"
@@ -125,43 +120,51 @@
         </div>
 
         <div class="input-section">
-          <label class="input-label">Language</label>
-          <div class="input-controls">
-            <select id="language-select">
-              <option value="javascript">JavaScript</option>
-              <option value="typescript">TypeScript</option>
-              <option value="python">Python</option>
-              <option value="java">Java</option>
-              <option value="go">Go</option>
-              <option value="rust">Rust</option>
-              <option value="c">C</option>
-              <option value="cpp">C++</option>
-              <option value="csharp">C#</option>
-              <option value="ruby">Ruby</option>
-              <option value="php">PHP</option>
-              <option value="swift">Swift</option>
-              <option value="kotlin">Kotlin</option>
-              <option value="html">HTML</option>
-              <option value="css">CSS</option>
-              <option value="sql">SQL</option>
-              <option value="bash">Bash</option>
-              <option value="yaml">YAML</option>
-              <option value="json">JSON</option>
-            </select>
-            <button
-              id="apply-code-btn"
-              class="btn btn-accent"
-              title="Clear annotations and reset"
-            >
-              Reset
-            </button>
+          <div class="group">
+            <div class="group-row">
+              <label class="input-label" for="language-select">Language</label>
+              <span class="popup">
+              <select id="language-select">
+                <option value="javascript">JavaScript</option>
+                <option value="typescript">TypeScript</option>
+                <option value="python">Python</option>
+                <option value="java">Java</option>
+                <option value="go">Go</option>
+                <option value="rust">Rust</option>
+                <option value="c">C</option>
+                <option value="cpp">C++</option>
+                <option value="csharp">C#</option>
+                <option value="ruby">Ruby</option>
+                <option value="php">PHP</option>
+                <option value="swift">Swift</option>
+                <option value="kotlin">Kotlin</option>
+                <option value="html">HTML</option>
+                <option value="css">CSS</option>
+                <option value="sql">SQL</option>
+                <option value="bash">Bash</option>
+                <option value="yaml">YAML</option>
+                <option value="json">JSON</option>
+                </select>
+              </span>
+            </div>
+            <div class="group-row group-row-stack">
+              <div class="group-row-head">
+                <label class="input-label" for="code-input">Source</label>
+                <button
+                  id="apply-code-btn"
+                  class="btn btn-ghost btn-compact"
+                  title="Clear annotations and reset"
+                >
+                  Reset
+                </button>
+              </div>
+              <textarea
+                id="code-input"
+                placeholder="Paste your code here..."
+                spellcheck="false"
+              ></textarea>
+            </div>
           </div>
-          <label class="input-label" style="margin-top: 12px">Source</label>
-          <textarea
-            id="code-input"
-            placeholder="Paste your code here..."
-            spellcheck="false"
-          ></textarea>
         </div>
 
         <div class="annotations-list" id="annotations-list">
@@ -190,7 +193,7 @@
               class="toolbar-toggle"
               title="Show annotated code snippet in cards"
             >
-              <input type="checkbox" id="show-code-toggle" />
+              <input type="checkbox" id="show-code-toggle" class="switch" role="switch" />
               <span>Show code</span>
             </label>
             <button id="doc-copy-btn" class="btn btn-export" disabled title="Copy an image plus the annotations as real text, for pasting into Word or Google Docs">
@@ -209,7 +212,7 @@
               </svg>
               Copy for Docs
             </button>
-            <button id="download-btn" class="btn btn-export" disabled>
+            <button id="download-btn" class="btn btn-export btn-accent" disabled>
               <svg
                 width="14"
                 height="14"
